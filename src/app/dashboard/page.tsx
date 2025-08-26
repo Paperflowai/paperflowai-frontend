@@ -364,9 +364,15 @@ function parseAmounts(text: string): { amountIncl?: number; vatAmount?: number }
 /** Gör en samlad OCR (helbild + beskuren topp) och returnera all text */
 async function ocrAllTextFromBlob(blob: Blob): Promise<string> {
   const url = URL.createObjectURL(blob);
-  try {
-    const quick = await Tesseract.recognize(url, 'swe+eng', { logger: () => {} });
-    let text = quick.data.text || '';
+  let text = '';
+try {
+  /* … */
+/* Klient-OCR via Tesseract avstängd – vi kör backend-OCR på Render.
+   // const { default: Tesseract } = await import('tesseract.js');
+   // const quick = await Tesseract.recognize(url, 'swe+eng', { logger: () => {} });
+   // text = quick.data.text || '';
+*/
+
 
     const img = await loadHtmlImage(url);
     const cropH = Math.max(80, Math.floor(img.height * 0.35));
@@ -887,3 +893,4 @@ function Card({ title, value }: { title: string; value: string }) {
 function formatCurrency(n: number) {
   return new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 }).format(n || 0);
 }
+
