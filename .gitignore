@@ -1,15 +1,25 @@
+<<<<<<< HEAD
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
 /node_modules
 /.pnp
 .pnp.*
+=======
+# Dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# Yarn (behåll bara patch/plugins/releases/versions)
+>>>>>>> aa96038f (Ladda upp projektet efter .gitignore-städning)
 .yarn/*
 !.yarn/patches
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
 
+<<<<<<< HEAD
 # testing
 /coverage
 
@@ -38,4 +48,45 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+=======
+# Next.js / Vercel / build
+.next/
+out/
+.vercel/
+dist/
+build/
+
+# Miljöfiler
+.env
+.env.*
+!.env.example
+
+# Loggar
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+
+# Editor & system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.pem
+
+# Test/artefakter/cache
+coverage/
+.turbo/
+.cache/
+
+# Virtuella Python-miljöer
+.venv/
+venv/
+
+# TypeScript/Next
+*.tsbuildinfo
+# Ta bort nästa rad om du vill committa filen:
+>>>>>>> aa96038f (Ladda upp projektet efter .gitignore-städning)
 next-env.d.ts
