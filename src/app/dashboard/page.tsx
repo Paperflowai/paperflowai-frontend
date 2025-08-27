@@ -389,13 +389,17 @@ try {
       // @ts-ignore
       psm: 6
     };
-    try {
-      const top = await Tesseract.recognize(cropUrl, 'swe+eng', opts);
-      text += '\n' + (top.data.text || '');
-    } catch {}
+ try {
+  // Tesseract avstängd – vi använder backend-OCR på Render.
+  // const top = await Tesseract.recognize(cropUrl, 'swe+eng', opts);
+  // text += '\n' + (top.data.text || '');
+} catch {} 
+finally {
+  URL.revokeObjectURL(url);
+}
 
-    return text;
-  } finally {
+return text;
+
     URL.revokeObjectURL(url);
   }
 }
@@ -893,4 +897,5 @@ function Card({ title, value }: { title: string; value: string }) {
 function formatCurrency(n: number) {
   return new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 }).format(n || 0);
 }
+
 
