@@ -367,6 +367,50 @@ async function ocrAllTextFromBlob(blob: Blob): Promise<string> {
   const url = URL.createObjectURL(blob);
   let text = '';
 
+  try {
+    // Ladda bilden och gör en topp-beskärning (hjälper för totalsumma/leverantör)
+    const img = await loadHtmlImage(url);
+    const cropH = Math.max(80, Math.floor(img.height * 0.35));
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = cropH;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(img, 0, 0, img.width, cropH, 0, 0, img.width, cropH);
+    const cropUrl = canvas.toDataURL('image/jpeg', 0.95);
+
+    // 🔵 Klient-OCR med dynamisk import (funkar på Vercel)
+    const { default: Tesseract } = await import('tesseract.js');
+
+    // Snabb helbild
+    try {
+      const quick = await Tesseract.recognize(url, 'swe+eng', { logger: () => {} });
+      text = quick.data.text || '';
+    } catch {}
+
+    // Extra pass på den beskurna toppen (lite bättre träff på rubriker/summor)
+    const opts: any = {
+      logger: () => {},
+      // @ts-ignore
+      tessedit_char_whitelist:
+        'ABCDEFGHJKLMNOPQRSTUWVXYZÅÄÖabcdefgjhiklmnopqurstuvwxyzåäö&.- ()0123456789:/.,',
+      psm: 6,
+    };
+
+    try {
+      const top = await Tesseract.recognize(cropUrl, 'swe+eng', opts);
+      text += '\n' + (top.data.text || '');
+    } catch {}
+
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+
+  return text;
+}
+
+  const url = URL.createObjectURL(blob);
+  let text = '';
+
   // Rita upp i canvas och ta topp-del
   const img = await loadHtmlImage(url);
   const cropH = Math.max(80, Math.floor(img.height * 0.35));
@@ -891,6 +935,7 @@ function Card({ title, value }: { title: string; value: string }) {
 function formatCurrency(n: number) {
   return new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 }).format(n || 0);
 }
+
 
 
 
