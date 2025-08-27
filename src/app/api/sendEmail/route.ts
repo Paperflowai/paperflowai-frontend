@@ -1,24 +1,13 @@
+// src/app/api/sendEmail/uploads/route.ts
 import { NextResponse } from "next/server";
 
-export async function POST(req: Request) {
-  const body = await req.json();
+// Gör POST tillgänglig (så filen blir en "modul" med en export)
+export async function POST(_req: Request) {
+  // TODO: ersätt med riktig uppladdning senare
+  return NextResponse.json({ ok: true });
+}
 
-  const { to, subject, text } = body;
-
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer re_acELLSQ4_3gudYcnkecCeHU9rNFs7jP87`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: "christina.aspman@aispecialisterna.se",
-      to,
-      subject,
-      text
-    })
-  });
-
-  const result = await response.json();
-  return NextResponse.json(result);
+// Valfritt: blockera GET tills vidare (undviker att route används fel)
+export function GET() {
+  return NextResponse.json({ error: "Method Not Allowed" }, { status: 405 });
 }
