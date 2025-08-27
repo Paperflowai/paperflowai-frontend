@@ -400,8 +400,7 @@ finally {
 
 return text;
 
-    URL.revokeObjectURL(url);
-  }
+     }
 }
 
 /** Huvud: OCR → tolka → skriv in i state */
@@ -897,5 +896,6 @@ function Card({ title, value }: { title: string; value: string }) {
 function formatCurrency(n: number) {
   return new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 }).format(n || 0);
 }
+
 
 
