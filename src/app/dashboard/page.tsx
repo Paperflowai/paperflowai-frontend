@@ -362,38 +362,37 @@ function parseAmounts(text: string): { amountIncl?: number; vatAmount?: number }
 }
 
 /** Gör en samlad OCR (helbild + beskuren topp) och returnera all text */
-/** Gör en samlad OCR (helbild + beskuren topp) och returnera allt text */
-/** Gör en samlad OCR (helbild + beskuren topp) och returnera allt text */
 async function ocrAllTextFromBlob(blob: Blob): Promise<string> {
   const url = URL.createObjectURL(blob);
-  let text = '';
-
-  // --- Ladda bilden och gör en topp-beskärning (hjälper för totalsumma/leverantör)
-  const img = await loadHtmlImage(url);
-  const cropH = Math.max(80, Math.floor(img.height * 0.35));
-  const canvas = document.createElement('canvas');
-  canvas.width = img.width;
-  canvas.height = cropH;
-  const ctx = canvas.getContext('2d')!;
-  ctx.drawImage(img, 0, 0, img.width, cropH, 0, 0, img.width, cropH);
-  const cropUrl = canvas.toDataURL('image/jpeg', 0.95);
-
-  // Klient-OCR via Tesseract är avstängd i produktion – vi använder backend-OCR.
   try {
-    // Om du vill aktivera klient-OCR, avkommentera dessa rader och lägg in Tesseract:
-    // const top = await Tesseract.recognize(cropUrl, 'swe+eng', { logger: () => {} });
-    // text += '\n' + (top.data.text || '');
-  } catch {}
+    const quick = await Tesseract.recognize(url, 'swe+eng', { logger: () => {} });
+    let text = quick.data.text || '';
 
-  finally {
-    // Frigör blob-URL oavsett vad som händer
+    const img = await loadHtmlImage(url);
+    const cropH = Math.max(80, Math.floor(img.height * 0.35));
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width; canvas.height = cropH;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(img, 0, 0, img.width, cropH, 0, 0, img.width, cropH);
+    const cropUrl = canvas.toDataURL('image/jpeg', 0.95);
+
+    const opts:any = {
+      logger: () => {},
+      // @ts-ignore
+      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖabcdefghijklmnopqrstuvwxyzåäö&.- ()0123456789:/.,',
+      // @ts-ignore
+      psm: 6
+    };
+    try {
+      const top = await Tesseract.recognize(cropUrl, 'swe+eng', opts);
+      text += '\n' + (top.data.text || '');
+    } catch {}
+
+    return text;
+  } finally {
     URL.revokeObjectURL(url);
   }
-
-  return text;
 }
-
-
 
 /** Huvud: OCR → tolka → skriv in i state */
 async function readAndAutofillFromBlob(
@@ -888,10 +887,3 @@ function Card({ title, value }: { title: string; value: string }) {
 function formatCurrency(n: number) {
   return new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 }).format(n || 0);
 }
-
-
-
-
-
-
-
