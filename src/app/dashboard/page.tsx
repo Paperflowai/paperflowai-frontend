@@ -5,6 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from "../../lib/supabaseClient";
 import { uploadPublicBlob } from "../../lib/supabaseStorage";
+import SavingsSummary from "@/components/SavingsSummary";
+import SettingsHourlyRate from "@/components/SettingsHourlyRate";
 
 
 // =========================
@@ -798,6 +800,8 @@ useEffect(() => {
 
   return (
     <div className="px-3 sm:px-6 md:px-8 py-6 space-y-10 max-w-screen-sm mx-auto md:max-w-6xl md:mx-auto">
+          <SavingsSummary className="mb-6" />
+          <SettingsHourlyRate className="mb-6" />
       {/* Kundregister */}
       <div>
         <div className="mb-2">
