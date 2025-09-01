@@ -244,7 +244,7 @@ export function showTimerNotification(title: string, body: string, actions?: { a
     badge: '/favicon.ico',
     tag: 'timer-notification',
     requireInteraction: true,
-    actions: actions || []
+    
   });
   
   // Auto-close after 10 seconds
