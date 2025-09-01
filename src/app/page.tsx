@@ -36,6 +36,7 @@ export default function HomePage() {
             <Link href="/order" className="text-white hover:text-black border border-white hover:bg-white px-3 py-1 rounded text-xs sm:text-sm transition">Order</Link>
             <Link href="/faktura" className="text-white hover:text-black border border-white hover:bg-white px-3 py-1 rounded text-xs sm:text-sm transition">Faktura</Link>
             <Link href="/bokforing" className="text-white hover:text-black border border-white hover:bg-white px-3 py-1 rounded text-xs sm:text-sm transition">Bokföring</Link>
+            <Link href="/tidsrapport" className="text-white hover:text-black border border-white hover:bg-white px-3 py-1 rounded text-xs sm:text-sm transition">Tidsrapport</Link>
             <Link href="/login" className="text-white hover:text-black border border-white hover:bg-white px-4 py-1 rounded text-xs sm:text-sm transition">Logga in</Link>
           </nav>
         </div>

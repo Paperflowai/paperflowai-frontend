@@ -3,17 +3,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
+import MicButton from "@/components/MicButton";
+import PlusUploadMenu from "@/components/PlusUploadMenu";
 import SavingsToast from "@/components/SavingsToast";
 import { addSaving } from "@/lib/savings";
 
-// Ladda klient-only för att undvika hydration-varningar
-const MicButton = dynamic(() => import("@/components/MicButton"), { ssr: false });
-const PlusUploadMenu = dynamic(() => import("@/components/PlusUploadMenu"), { ssr: false });
-
 type Msg = { role: "user" | "assistant"; content: string };
 
-// ===== Hjälpare: timpris (700 kr/h default, kan läsas från localStorage) =====
 function getHourlyRate(): number {
   if (typeof window === "undefined") return 700;
   const saved = localStorage.getItem("pf_hourly_rate_sek");
@@ -21,13 +17,12 @@ function getHourlyRate(): number {
   return Number.isFinite(n) && n > 0 ? n : 700;
 }
 
-// ===== Hjälpare: enkel uppskattning av sparade minuter =====
 function estimateMinutesSaved(userText: string): number {
   const t = userText.toLowerCase();
-  if (/\boffert\b/.test(t)) return 50;  // t.ex. 50 min för offert
-  if (/\border\b/.test(t)) return 30;   // t.ex. 30 min för order
-  if (/\bfaktura\b/.test(t)) return 40; // t.ex. 40 min för faktura
-  return 20; // standard om något annat skapas
+  if (/\boffert\b/.test(t)) return 50;
+  if (/\border\b/.test(t)) return 30;
+  if (/\bfaktura\b/.test(t)) return 40;
+  return 20;
 }
 
 export default function ChatPage() {
@@ -38,12 +33,10 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Toast-state
   const [toastOpen, setToastOpen] = useState(false);
   const [toastMinutes, setToastMinutes] = useState(0);
   const [toastAmount, setToastAmount] = useState(0);
 
-  // auto-scroll vid nya meddelanden
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
@@ -58,7 +51,7 @@ export default function ChatPage() {
     setInput("");
     setLoading(true);
 
-    // lägg till tomt assistant-svar som vi fyller på med stream
+    // tomt assistantsvar som fylls på under stream
     setMessages((prev) => [...prev, { role: "assistant" as const, content: "" }]);
 
     try {
@@ -76,9 +69,8 @@ export default function ChatPage() {
 
       const reader = resp.body.getReader();
       const decoder = new TextDecoder("utf-8");
-
       let acc = "";
-      // eslint-disable-next-line no-constant-condition
+
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -114,20 +106,14 @@ export default function ChatPage() {
         }
       }
 
-      // === Stream färdig → visa toast och uppdatera banner ===
       const minutes = estimateMinutesSaved(content);
       const amount = Math.round((minutes / 60) * getHourlyRate());
-
-      // Toast
       setToastMinutes(minutes);
       setToastAmount(amount);
       setToastOpen(true);
       setTimeout(() => setToastOpen(false), 4000);
-
-      // Ackumulerad besparing → uppdaterar banner (SavingsBadge/Summary)
       addSaving({ minutes, amountSEK: amount, source: "chat" });
-
-    } catch (err: any) {
+    } catch {
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: "Kunde inte hämta svar just nu." },
@@ -162,14 +148,13 @@ export default function ChatPage() {
 
       {/* Meddelandelista */}
       <div ref={listRef} className="flex-1 overflow-auto px-4 sm:px-6 py-4">
+        {/* ⚠️ Viktigt: INGET får ligga på en egen rad mellan raden ovan och raden nedan */}
         <div className="mx-auto max-w-3xl space-y-4">
           {messages.map((m, i) => (
             <div
               key={i}
               className={`rounded-2xl px-4 py-3 whitespace-pre-wrap leading-relaxed ${
-                m.role === "user"
-                  ? "bg-teal-50 text-gray-900 self-end"
-                  : "bg-gray-50 text-gray-900"
+                m.role === "user" ? "bg-teal-50 text-gray-900" : "bg-gray-50 text-gray-900"
               }`}
             >
               {m.content}
@@ -183,16 +168,13 @@ export default function ChatPage() {
       <form onSubmit={sendMessage} className="border-t px-4 sm:px-6 py-3">
         <div className="mx-auto max-w-3xl">
           <div className="flex items-end gap-2">
-            {/* ➕ längst till vänster */}
             <PlusUploadMenu
               onAddNote={(file) => {
-                // Lägg en kort rad i input som kontext till GPT (enkelt läge)
-                const tag = file.type === "pdf" ? "PDF" : "Bild";
-                setInput((prev) =>
-                  prev
-                    ? `${prev}\n[${tag} uppladdad: ${file.name}]`
-                    : `[${tag} uppladdad: ${file.name}]`
-                );
+                // bara enkel text för maximal stabilitet på mobil
+                setMessages((prev) => [
+                  ...prev,
+                  { role: "user", content: `Fil uppladdad: ${file.name}` },
+                ]);
               }}
             />
 
@@ -203,7 +185,6 @@ export default function ChatPage() {
               onChange={(e) => setInput(e.target.value)}
             />
 
-            {/* 🎤 Röst till text */}
             <MicButton
               className="rounded-xl"
               onText={(t) => setInput((prev) => (prev ? prev + "\n" + t : t))}
@@ -223,7 +204,6 @@ export default function ChatPage() {
         </div>
       </form>
 
-      {/* 💡 Toast längst ner */}
       <SavingsToast
         open={toastOpen}
         minutes={toastMinutes}

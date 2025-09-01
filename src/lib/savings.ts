@@ -1,10 +1,11 @@
 // src/lib/savings.ts
 export type SavingsEventType =
-  | "quote_created"
-  | "order_created"
-  | "invoice_created"
-  | "pdf_autofill"
-  | "ocr_receipt";
+  | "create_offer"
+  | "create_order"
+  | "create_invoice"
+  | "ocr_receipt"
+  | "voice_note"
+  | "chat_generation";
 
 export interface SavingsEvent {
   id: string;
@@ -20,11 +21,12 @@ const DEFAULT_SAVINGS: Record<
   SavingsEventType,
   { manualMin: number; platformMin: number }
 > = {
-  quote_created: { manualMin: 20, platformMin: 5 },
-  order_created: { manualMin: 10, platformMin: 2 },
-  invoice_created: { manualMin: 12, platformMin: 3 },
-  pdf_autofill: { manualMin: 6, platformMin: 1 },
+  create_offer: { manualMin: 50, platformMin: 5 },
+  create_order: { manualMin: 30, platformMin: 2 },
+  create_invoice: { manualMin: 40, platformMin: 3 },
   ocr_receipt: { manualMin: 3, platformMin: 0.5 },
+  voice_note: { manualMin: 5, platformMin: 1 },
+  chat_generation: { manualMin: 20, platformMin: 2 },
 };
 
 // Standardtimlön (SEK/h)
@@ -58,12 +60,12 @@ export function addEvent(
   const minutesSaved = Math.max(0, manual - platform);
 
   const ev: SavingsEvent = {
-    id: typeof window !== "undefined" && typeof crypto !== "undefined" && "randomUUID" in crypto
+    id: typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
-      : `savings_${Math.random().toString(36).substr(2, 9)}`,
+      : String(Date.now()),
     type,
     minutesSaved,
-    occurredAt: typeof window !== "undefined" ? new Date().toISOString() : new Date().toISOString(),
+    occurredAt: new Date().toISOString(),
   };
 
   const all = safeGetEvents();
@@ -74,6 +76,25 @@ export function addEvent(
 
 export function getAllEvents(): SavingsEvent[] {
   return safeGetEvents();
+}
+
+// Ny enkel funktion för att lägga till besparingar från chatten
+export function addSaving({ minutes, amountSEK, source }: { minutes: number; amountSEK: number; source: string }) {
+  if (typeof window === "undefined") return;
+  
+  const ev: SavingsEvent = {
+    id: typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : String(Date.now()),
+    type: "chat_generation" as SavingsEventType,
+    minutesSaved: minutes,
+    occurredAt: new Date().toISOString(),
+  };
+
+  const all = safeGetEvents();
+  all.push(ev);
+  saveEvents(all);
+  return ev;
 }
 
 export function resetSavings() {
@@ -99,26 +120,4 @@ export function getSummary(opts?: {
   const totalMinutes = events.reduce((sum, e) => sum + e.minutesSaved, 0);
   const totalCostSEK = (totalMinutes / 60) * rate;
   return { totalMinutes, totalCostSEK, count: events.length };
-}
-// Lägg till en spar-händelse och trigga uppdatering av banners
-export function addSaving({
-  minutes,
-  amountSEK,
-  source = "chat",
-}: {
-  minutes: number;
-  amountSEK: number;
-  source?: string;
-}) {
-  try {
-    const arr = JSON.parse(localStorage.getItem("pf_savings_events") || "[]");
-    const ev = { minutes, amountSEK, source, ts: Date.now() };
-    localStorage.setItem("pf_savings_events", JSON.stringify([...arr, ev]));
-  } catch {
-    // om något strular i parse, börja om
-    const ev = { minutes, amountSEK, source, ts: Date.now() };
-    localStorage.setItem("pf_savings_events", JSON.stringify([ev]));
-  }
-  // Tala om för badges/summary att summera om
-  window.dispatchEvent(new Event("pf:savings:changed"));
 }
