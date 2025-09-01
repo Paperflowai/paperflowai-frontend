@@ -144,20 +144,6 @@ export class PWAManager {
     };
   }
 
-  // Background sync
-  async requestBackgroundSync(tag: string) {
-    if ('serviceWorker' in navigator && 'sync' in window.ServiceWorkerRegistration.prototype) {
-      try {
-        await this.registration?.sync.register(tag);
-        return true;
-      } catch (error) {
-        console.error('Background sync registration failed:', error);
-        return false;
-      }
-    }
-    return false;
-  }
-
   // Push notifications
   async subscribeToPush(): Promise<PushSubscription | null> {
     if (!this.registration) return null;
@@ -199,7 +185,6 @@ export class PWAManager {
     icon?: string;
   }) {
     if ('getInstalledRelatedApps' in navigator) {
-      // This is a future API that might be available
       console.log('Adding shortcut:', shortcut);
     }
   }
@@ -211,7 +196,6 @@ export class PWAManager {
       online: this.isOnline(),
       notifications: 'Notification' in window,
       serviceWorker: 'serviceWorker' in navigator,
-      backgroundSync: 'serviceWorker' in navigator && 'sync' in window.ServiceWorkerRegistration.prototype,
       pushMessaging: 'PushManager' in window,
       camera: 'mediaDevices' in navigator && 'getUserMedia' in navigator.mediaDevices,
       geolocation: 'geolocation' in navigator,
