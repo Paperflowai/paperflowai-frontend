@@ -1,7 +1,7 @@
 // src/app/kund/layout.tsx
 "use client";
 
-import SavingsBadge from "../../components/SavingsBadge";
+import SavingsBadge from "../../../components/SavingsBadge";
 
 export default function KundLayout({
   children,
