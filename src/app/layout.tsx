@@ -21,15 +21,15 @@ export default function RootLayout({
   return (
     <html lang="sv">
       <head>
-        {/* Extra säkring om viewport-exporten inte biter */}
         <meta
           name="viewport"
           content="width=device-width, initial-scale=1, viewport-fit=cover"
         />
       </head>
       <body className="bg-gray-100 text-gray-900 overflow-x-hidden">
-        {children}
+        {/* Lägg knappen före children */}
         <BackButton />
+        {children}
       </body>
     </html>
   );
