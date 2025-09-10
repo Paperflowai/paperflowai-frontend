@@ -1,34 +1,36 @@
 import { NextRequest } from "next/server";
 import { pdf } from "@react-pdf/renderer";
+import React from "react";
 import OfferPdf, { OfferData } from "@/lib/pdf/OfferPdf";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
-    const { data, logoUrl, rotImageUrl } = await req.json() as { data: OfferData; logoUrl?: string; rotImageUrl?: string; };
-    
-    if (!data) {
-      return new Response(JSON.stringify({ ok: false, error: "Data is required" }), { 
-        status: 400,
-        headers: { "Content-Type": "application/json" }
-      });
-    }
+    const { data } = (await req.json()) as { data: OfferData };
 
-    const instance = pdf(<OfferPdf data={data} logoUrl={logoUrl} rotImageUrl={rotImageUrl} />);
-    const stream = await instance.toBlob();
-    
-    return new Response(stream, {
+    // Skapa JSX-elementet
+    const element = <OfferPdf data={data} />;
+
+    // Rendera till PDF med react-pdf
+    const instance = pdf(element);
+    const buf = await instance.toBuffer();
+
+    // ✅ Gör om Buffer till Uint8Array så Next.js Response accepterar det
+    return new Response(new Uint8Array(buf), {
       status: 200,
-      headers: { 
-        "Content-Type": "application/pdf", 
-        "Content-Disposition": "inline; filename=offert.pdf" 
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": "inline; filename=offert.pdf",
       },
     });
   } catch (e: any) {
-    return new Response(JSON.stringify({ ok: false, error: e?.message || "Render-fel" }), { 
-      status: 500,
-      headers: { "Content-Type": "application/json" }
-    });
+    return new Response(
+      JSON.stringify({ ok: false, error: e?.message || "Render-fel" }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
   }
 }
