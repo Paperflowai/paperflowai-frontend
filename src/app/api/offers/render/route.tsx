@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     const instance = pdf(element);
     const buf = await instance.toBuffer();
 
-    // ✅ Konvertera Buffer -> ArrayBuffer så att Response fungerar i Next.js
+    // ✅ FIX: Konvertera Buffer -> ArrayBuffer innan vi skickar svaret
     const arrayBuffer = buf.buffer.slice(
       buf.byteOffset,
       buf.byteOffset + buf.byteLength
