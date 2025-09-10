@@ -12,15 +12,10 @@ export async function POST(req: NextRequest) {
     // Skapa JSX-elementet
     const element = <OfferPdf data={data} />;
 
-    // Rendera till PDF med react-pdf
+    // Rendera PDF till Blob istället för Buffer
     const instance = pdf(element);
-    const buf = await instance.toBuffer();
-
-    // ✅ FIX: Konvertera Buffer -> ArrayBuffer innan vi skickar svaret
-    const arrayBuffer = buf.buffer.slice(
-      buf.byteOffset,
-      buf.byteOffset + buf.byteLength
-    );
+    const blob = await instance.toBlob();
+    const arrayBuffer = await blob.arrayBuffer();
 
     return new Response(arrayBuffer, {
       status: 200,
