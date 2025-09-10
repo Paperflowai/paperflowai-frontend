@@ -1,0 +1,60 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "PaperflowAI Offert API",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local server"
+    },
+    {
+      "url": "https://dittprojekt.vercel.app",
+      "description": "Production server"
+    }
+  ],
+  "paths": {
+    "/api/offert": {
+      "post": {
+        "summary": "Skicka offert till PaperflowAI",
+        "operationId": "sendOffert",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "kundId": { "type": "string" },
+                  "offertId": { "type": "string" },
+                  "kundnamn": { "type": "string" },
+                  "pris": { "type": "string" },
+                  "beskrivning": { "type": "string" }
+                },
+                "required": ["kundId", "offertId"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offerten sparades i PaperflowAI",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "message": { "type": "string" },
+                    "url": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
