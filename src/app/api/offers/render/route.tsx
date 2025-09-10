@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     // Skapa JSX-elementet
     const element = <OfferPdf data={data} />;
 
-    // Rendera PDF till Blob istället för Buffer
+    // ✅ Rendera PDF till Blob (inte Buffer)
     const instance = pdf(element);
     const blob = await instance.toBlob();
     const arrayBuffer = await blob.arrayBuffer();
