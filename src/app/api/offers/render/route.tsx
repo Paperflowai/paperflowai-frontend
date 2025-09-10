@@ -16,9 +16,9 @@ export async function POST(req: NextRequest) {
     }
 
     const instance = pdf(<OfferPdf data={data} logoUrl={logoUrl} rotImageUrl={rotImageUrl} />);
-    const buf = await instance.toBuffer();
+    const stream = await instance.toBlob();
     
-    return new Response(buf, {
+    return new Response(stream, {
       status: 200,
       headers: { 
         "Content-Type": "application/pdf", 
