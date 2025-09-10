@@ -6,19 +6,15 @@
   },
   "servers": [
     {
-      "url": "http://localhost:3000",
-      "description": "Local server"
-    },
-    {
-      "url": "https://dittprojekt.vercel.app",
-      "description": "Production server"
+      "url": "https://paperflowai-frontend.vercel.app",
+      "description": "Production"
     }
   ],
   "paths": {
-    "/api/offert": {
+    "/api/offers/render": {
       "post": {
-        "summary": "Skicka offert till PaperflowAI",
-        "operationId": "sendOffert",
+        "operationId": "renderOfferPdf",
+        "summary": "Generera offert som PDF",
         "requestBody": {
           "required": true,
           "content": {
@@ -26,34 +22,61 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "kundId": { "type": "string" },
-                  "offertId": { "type": "string" },
-                  "kundnamn": { "type": "string" },
-                  "pris": { "type": "string" },
-                  "beskrivning": { "type": "string" }
+                  "data": { "$ref": "#/components/schemas/OfferData" }
                 },
-                "required": ["kundId", "offertId"]
+                "required": ["data"]
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Offerten sparades i PaperflowAI",
+            "description": "PDF genererad",
+            "content": {
+              "application/pdf": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "400": {
+            "description": "Felaktig begäran",
             "content": {
               "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "success": { "type": "boolean" },
-                    "message": { "type": "string" },
-                    "url": { "type": "string" }
-                  }
-                }
+                "schema": { "type": "object", "properties": { "error": { "type": "string" } } }
+              }
+            }
+          },
+          "500": {
+            "description": "Serverfel",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "properties": { "error": { "type": "string" } } }
               }
             }
           }
         }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "OfferData": {
+        "type": "object",
+        "properties": {
+          "customer": { "type": "string" },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "price": { "type": "number" }
+              },
+              "required": ["name", "price"]
+            }
+          }
+        },
+        "required": ["customer", "items"]
       }
     }
   }
