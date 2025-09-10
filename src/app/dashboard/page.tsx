@@ -363,36 +363,49 @@ function parseAmounts(text: string): { amountIncl?: number; vatAmount?: number }
   return { amountIncl, vatAmount };
 }
 
-/** Gör en samlad OCR (helbild + beskuren topp) och returnera all text */
+/** OpenAI Vision API OCR med bildkvalitetskontroll */
 async function ocrAllTextFromBlob(blob: Blob): Promise<string> {
-  const url = URL.createObjectURL(blob);
   try {
-    const quick = await Tesseract.recognize(url, 'swe+eng', { logger: () => {} });
-    let text = quick.data.text || '';
+    // Konvertera blob till base64
+    const base64 = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve(result.split(',')[1]); // Ta bort "data:image/...;base64,"
+      };
+      reader.readAsDataURL(blob);
+    });
 
-    const img = await loadHtmlImage(url);
-    const cropH = Math.max(80, Math.floor(img.height * 0.35));
-    const canvas = document.createElement('canvas');
-    canvas.width = img.width; canvas.height = cropH;
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(img, 0, 0, img.width, cropH, 0, 0, img.width, cropH);
-    const cropUrl = canvas.toDataURL('image/jpeg', 0.95);
+    // 1. Först kontrollera bildkvalitet
+    const qualityResponse = await fetch('/api/image-quality', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: base64 })
+    });
 
-    const opts:any = {
-      logger: () => {},
-      // @ts-ignore
-      tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖabcdefghijklmnopqrstuvwxyzåäö&.- ()0123456789:/.,',
-      // @ts-ignore
-      psm: 6
-    };
-    try {
-      const top = await Tesseract.recognize(cropUrl, 'swe+eng', opts);
-      text += '\n' + (top.data.text || '');
-    } catch {}
+    if (qualityResponse.ok) {
+      const qualityData = await qualityResponse.json();
+      if (!qualityData.passed) {
+        throw new Error(`Bildkvalitet otillräcklig: ${qualityData.issues.join(', ')}`);
+      }
+    }
 
-    return text;
-  } finally {
-    URL.revokeObjectURL(url);
+    // 2. Om kvaliteten är OK, kör OCR
+    const response = await fetch('/api/openai-ocr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: base64 })
+    });
+
+    if (!response.ok) {
+      throw new Error('OCR API failed');
+    }
+
+    const data = await response.json();
+    return data.text || '';
+  } catch (error) {
+    console.error('OCR Error:', error);
+    throw error; // Kasta vidare felet så användaren får feedback
   }
 }
 
@@ -490,6 +503,7 @@ useEffect(() => {
 
   const [ocrRunning, setOcrRunning] = useState(false);
   const [batchOcrRunning, setBatchOcrRunning] = useState(false);
+  const [qualityError, setQualityError] = useState<string>('');
 
   useEffect(() => {
     if (isClient) setDate(new Date().toISOString().slice(0, 10));
@@ -688,13 +702,19 @@ useEffect(() => {
     const inputEl = cameraRef.current;
     const f = e.currentTarget.files?.[0];
     if (!f) { if (inputEl) inputEl.value = ''; return; }
+    
+    setQualityError(''); // Rensa tidigare fel
+    
     try {
       const blob = await compressImageToBlob(f);
       setPendingBlob(blob);
       setPendingMime('image/jpeg');
       setOcrRunning(true);
       await readAndAutofillFromBlob(blob, { setSupplierName, setAmount, setVat, setDate });
-    } catch { alert('Kunde inte läsa/komprimera bilden.'); }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Kunde inte läsa bilden.';
+      setQualityError(errorMessage);
+    }
     finally { if (inputEl) inputEl.value = ''; setOcrRunning(false); }
   }
 
@@ -702,6 +722,9 @@ useEffect(() => {
     const inputEl = fileRef.current;
     const f = e.currentTarget.files?.[0];
     if (!f) { if (inputEl) inputEl.value = ''; return; }
+    
+    setQualityError(''); // Rensa tidigare fel
+    
     try {
       if (f.type.startsWith('image/')) {
         const blob = await compressImageToBlob(f);
@@ -714,7 +737,10 @@ useEffect(() => {
         setPendingBlob(blob);
         setPendingMime(f.type || 'application/pdf');
       }
-    } catch { alert('Kunde inte läsa filen.'); }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Kunde inte läsa filen.';
+      setQualityError(errorMessage);
+    }
     finally { if (inputEl) inputEl.value = ''; setOcrRunning(false); }
   }
 
@@ -836,6 +862,35 @@ useEffect(() => {
             className="border border-gray-300 rounded-lg px-4 py-3 md:px-3 md:py-2 w-full sm:w-64 text-base md:text-sm"
           />
         </div>
+
+        {/* Bildkvalitetsfel */}
+        {qualityError && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-red-800">
+                  Bildkvalitet otillräcklig
+                </h3>
+                <div className="mt-2 text-sm text-red-700">
+                  <p>{qualityError}</p>
+                </div>
+                <div className="mt-3">
+                  <button
+                    onClick={() => setQualityError('')}
+                    className="text-sm bg-red-100 text-red-800 px-3 py-1 rounded hover:bg-red-200"
+                  >
+                    Stäng
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="overflow-x-auto rounded border">
           <table className="w-full border-collapse">

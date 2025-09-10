@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@react-pdf/renderer": "^4.3.0",
     "@supabase/supabase-js": "^2.57.0",
     "localforage": "^1.10.0",
     "lucide-react": "^0.542.0",

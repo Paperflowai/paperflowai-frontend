@@ -4,48 +4,23 @@ export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData();
-    const file = formData.get('file') as File;
+    const { image } = await req.json();
     
-    if (!file) {
-      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    if (!image) {
+      return NextResponse.json({ error: 'Image required' }, { status: 400 });
     }
 
-    // Konvertera fil till base64
-    const arrayBuffer = await file.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString('base64');
-
-    // Kontrollera om OpenAI API key finns
     const apiKey = process.env.OPENAI_API_KEY;
     
     if (!apiKey) {
       // Fallback till mock-svar om ingen API key
       return NextResponse.json({ 
         text: 'Mock OCR: Faktura från ICA, 1 250 kr, 25% moms, 2024-01-15, Kvittonr: 12345',
-        mock: true,
-        confidence: 0.95
+        mock: true 
       });
     }
 
-    // 1. Först kontrollera bildkvalitet
-    const qualityResponse = await fetch(`${req.nextUrl.origin}/api/image-quality`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: base64 })
-    });
-
-    if (qualityResponse.ok) {
-      const qualityData = await qualityResponse.json();
-      if (!qualityData.passed) {
-        return NextResponse.json({ 
-          error: `Bildkvalitet otillräcklig: ${qualityData.issues.join(', ')}`,
-          quality_issues: qualityData.issues,
-          suggestions: qualityData.suggestions
-        }, { status: 400 });
-      }
-    }
-
-    // 2. Om kvaliteten är OK, kör OCR med OpenAI
+    // Anropa OpenAI Vision API
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -72,7 +47,7 @@ export async function POST(req: NextRequest) {
               {
                 type: 'image_url',
                 image_url: {
-                  url: `data:image/jpeg;base64,${base64}`
+                  url: `data:image/jpeg;base64,${image}`
                 }
               }
             ]
@@ -89,17 +64,14 @@ export async function POST(req: NextRequest) {
     const data = await response.json();
     const text = data.choices?.[0]?.message?.content || '';
     
-    return NextResponse.json({ 
-      text,
-      confidence: 0.9 // OpenAI Vision har hög confidence
-    });
+    return NextResponse.json({ text });
     
   } catch (error) {
-    console.error('OCR error:', error);
+    console.error('OpenAI OCR error:', error);
     return NextResponse.json({ 
       error: 'OCR failed',
-      text: 'Kunde inte läsa text från bilden',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      text: 'Kunde inte läsa text från bilden'
     }, { status: 500 });
   }
 }
+

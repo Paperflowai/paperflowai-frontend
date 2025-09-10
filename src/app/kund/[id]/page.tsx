@@ -85,7 +85,13 @@ export default function KundDetaljsida() {
     country: "Sverige",
     contactDate: "",
     notes: "",
-    customerNumber: ""
+    customerNumber: "",
+    // Nya fält för offertdata
+    offerText: "",
+    totalSum: "",
+    vatPercent: "",
+    vatAmount: "",
+    validityDays: ""
   });
 
   const [images, setImages] = useState<{ name: string; url: string }[]>([]);
@@ -105,15 +111,62 @@ export default function KundDetaljsida() {
   const objectUrlsRef = useRef<string[]>([]);
 
   useEffect(() => {
-    const saved = localStorage.getItem(`kund_${id}`);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setData(parsed);
+    // Först försök hämta från den nya strukturen (paperflow_customers_v1)
+    const existingCustomers = JSON.parse(localStorage.getItem('paperflow_customers_v1') || '[]');
+    const customer = existingCustomers.find((c: any) => String(c.id) === String(id));
+    
+    if (customer) {
+      // Använd data från den nya strukturen
+      setData({
+        companyName: customer.companyName || "",
+        orgNr: customer.orgNr || "",
+        contactPerson: customer.contactPerson || "",
+        role: customer.role || "",
+        phone: customer.phone || "",
+        email: customer.email || "",
+        address: customer.address || "",
+        zip: customer.zip || "",
+        city: customer.city || "",
+        country: customer.country || "Sverige",
+        contactDate: customer.contactDate || "",
+        notes: customer.notes || "",
+        customerNumber: customer.customerNumber || "",
+        // Nya fält för offertdata
+        offerText: customer.offerText || "",
+        totalSum: customer.totalSum || "",
+        vatPercent: customer.vatPercent || "",
+        vatAmount: customer.vatAmount || "",
+        validityDays: customer.validityDays || ""
+      });
     } else {
-      const nyttKundnummer = `K-${Math.floor(100000 + Math.random() * 900000)}`;
-      const initialData = { ...data, customerNumber: nyttKundnummer };
-      localStorage.setItem(`kund_${id}`, JSON.stringify(initialData));
-      setData(initialData);
+      // Fallback till gamla strukturen
+      const saved = localStorage.getItem(`kund_${id}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setData({
+          ...parsed,
+          // Lägg till de nya fälten med tomma värden
+          offerText: "",
+          totalSum: "",
+          vatPercent: "",
+          vatAmount: "",
+          validityDays: ""
+        });
+      } else {
+        const nyttKundnummer = `K-${Math.floor(100000 + Math.random() * 900000)}`;
+        const initialData = { 
+          ...data, 
+          customerNumber: nyttKundnummer,
+          // Lägg till de nya fälten med tomma värden
+          offerText: "",
+          totalSum: "",
+          vatPercent: "",
+          vatAmount: "",
+          validityDays: ""
+        };
+        localStorage.setItem(`kund_${id}`, JSON.stringify(initialData));
+        setData(initialData);
+      }
     }
 
     const savedImages = localStorage.getItem(`kund_images_${id}`);
@@ -158,7 +211,40 @@ export default function KundDetaljsida() {
   }, [id]);
 
   function persistData(updated: typeof data) {
-    localStorage.setItem(`kund_${id}`, JSON.stringify(updated));
+    // Spara till den nya strukturen (paperflow_customers_v1)
+    const existingCustomers = JSON.parse(localStorage.getItem('paperflow_customers_v1') || '[]');
+    const customerIndex = existingCustomers.findIndex((c: any) => String(c.id) === String(id));
+    
+    if (customerIndex !== -1) {
+      // Uppdatera befintlig kund
+      existingCustomers[customerIndex] = {
+        ...existingCustomers[customerIndex],
+        companyName: updated.companyName,
+        orgNr: updated.orgNr,
+        contactPerson: updated.contactPerson,
+        role: updated.role,
+        phone: updated.phone,
+        email: updated.email,
+        address: updated.address,
+        zip: updated.zip,
+        city: updated.city,
+        country: updated.country,
+        contactDate: updated.contactDate,
+        notes: updated.notes,
+        customerNumber: updated.customerNumber,
+        // Nya fält för offertdata
+        offerText: updated.offerText,
+        totalSum: updated.totalSum,
+        vatPercent: updated.vatPercent,
+        vatAmount: updated.vatAmount,
+        validityDays: updated.validityDays
+      };
+      localStorage.setItem('paperflow_customers_v1', JSON.stringify(existingCustomers));
+    } else {
+      // Fallback till gamla strukturen
+      localStorage.setItem(`kund_${id}`, JSON.stringify(updated));
+    }
+    
     setData(updated);
   }
 
@@ -366,7 +452,13 @@ export default function KundDetaljsida() {
       country: "Sverige",
       contactDate: "",
       notes: "",
-      customerNumber: nyttKundnummer
+      customerNumber: nyttKundnummer,
+      // Nya fält för offertdata
+      offerText: "",
+      totalSum: "",
+      vatPercent: "",
+      vatAmount: "",
+      validityDays: ""
     };
     localStorage.setItem(`kund_${id}`, JSON.stringify(tomData));
     setData(tomData);
@@ -591,6 +683,42 @@ export default function KundDetaljsida() {
         </div>
       </div>
 
+      {/* === Offertdata (om de finns) === */}
+      {(data.totalSum || data.vatPercent || data.vatAmount || data.validityDays) && (
+        <div className="mb-6">
+          <h2 className="text-xl font-bold mb-4">💰 Offertdata</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            {data.totalSum && (
+              <div className="flex flex-col">
+                <label htmlFor="totalSum" className="text-sm text-gray-600 mb-1">Totalsumma</label>
+                <input id="totalSum" name="totalSum" value={data.totalSum} onChange={handleChange} className="border p-2 rounded" />
+              </div>
+            )}
+            
+            {data.vatPercent && (
+              <div className="flex flex-col">
+                <label htmlFor="vatPercent" className="text-sm text-gray-600 mb-1">Moms %</label>
+                <input id="vatPercent" name="vatPercent" value={data.vatPercent} onChange={handleChange} className="border p-2 rounded" />
+              </div>
+            )}
+            
+            {data.vatAmount && (
+              <div className="flex flex-col">
+                <label htmlFor="vatAmount" className="text-sm text-gray-600 mb-1">Moms belopp</label>
+                <input id="vatAmount" name="vatAmount" value={data.vatAmount} onChange={handleChange} className="border p-2 rounded" />
+              </div>
+            )}
+            
+            {data.validityDays && (
+              <div className="flex flex-col">
+                <label htmlFor="validityDays" className="text-sm text-gray-600 mb-1">Giltighet (dagar)</label>
+                <input id="validityDays" name="validityDays" value={data.validityDays} onChange={handleChange} className="border p-2 rounded" />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <h2 className="text-xl font-bold mt-8">📷 Bilder och kladdlappar</h2>
       <input type="file" accept="image/*" multiple onChange={handleImageUpload} className="mt-2 mb-4 text-blue-700 font-semibold cursor-pointer" />
       <div className="grid grid-cols-2 gap-4 mb-6">
@@ -743,6 +871,16 @@ export default function KundDetaljsida() {
       </div>
 
       <textarea name="notes" value={data.notes} onChange={handleChange} placeholder="Anteckningar..." rows={6} className="w-full border p-3 rounded mb-4" />
+
+      {/* === Offerttext (om den finns) === */}
+      {data.offerText && (
+        <div className="mb-6">
+          <h2 className="text-xl font-bold mb-4">📄 Offerttext från chatten</h2>
+          <div className="border p-4 rounded bg-gray-50">
+            <pre className="whitespace-pre-wrap text-sm font-mono">{data.offerText}</pre>
+          </div>
+        </div>
+      )}
       <div className="flex gap-4 mt-6">
         <Link href="/dashboard"><button className="bg-gray-300 hover:bg-gray-400 text-black px-4 py-2 rounded">← Tillbaka</button></Link>
       </div>
