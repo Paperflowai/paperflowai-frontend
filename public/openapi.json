@@ -1,82 +1,69 @@
 {
   "openapi": "3.1.0",
-  "info": {
-    "title": "PaperflowAI Offert API",
-    "version": "1.0.0"
-  },
+  "info": { "title": "PaperflowAI Offer API", "version": "1.0.0" },
   "servers": [
-    {
-      "url": "https://paperflowai-frontend.vercel.app",
-      "description": "Production"
-    }
+    { "url": "http://localhost:3000", "description": "local" },
+    { "url": "https://paperflowai-frontend.vercel.app", "description": "production" }
   ],
   "paths": {
-    "/api/offers/render": {
+    "/api/offers/create": {
       "post": {
-        "operationId": "renderOfferPdf",
-        "summary": "Generera offert som PDF",
+        "operationId": "createOffer",
+        "summary": "Skapa offert i PaperflowAI och generera PDF",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
+                "required": ["customerId", "data"],
                 "properties": {
-                  "data": { "$ref": "#/components/schemas/OfferData" }
-                },
-                "required": ["data"]
+                  "customerId": { "type": "string", "description": "Kundkort-ID i PaperflowAI" },
+                  "title": { "type": "string" },
+                  "amount": { "type": "number" },
+                  "currency": { "type": "string", "default": "SEK" },
+                  "needsPrint": { "type": "boolean", "default": false, "description": "Flagga för papperskopia" },
+                  "data": { "type": "object", "description": "Hela offertdatan (kund, rader, villkor, mm.)" }
+                }
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "PDF genererad",
-            "content": {
-              "application/pdf": {
-                "schema": { "type": "string", "format": "binary" }
-              }
-            }
-          },
-          "400": {
-            "description": "Felaktig begäran",
+            "description": "Offert skapad",
             "content": {
               "application/json": {
-                "schema": { "type": "object", "properties": { "error": { "type": "string" } } }
-              }
-            }
-          },
-          "500": {
-            "description": "Serverfel",
-            "content": {
-              "application/json": {
-                "schema": { "type": "object", "properties": { "error": { "type": "string" } } }
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "offer": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "string" },
+                        "customer_id": { "type": "string" },
+                        "title": { "type": "string" },
+                        "amount": { "type": "number" },
+                        "currency": { "type": "string" },
+                        "file_url": { "type": "string", "description": "Publik länk till PDF" },
+                        "created_at": { "type": "string" }
+                      },
+                      "required": ["id", "customer_id", "file_url", "created_at"]
+                    }
+                  },
+                  "required": ["ok", "offer"]
+                }
               }
             }
           }
         }
       }
-    }
-  },
-  "components": {
-    "schemas": {
-      "OfferData": {
-        "type": "object",
-        "properties": {
-          "customer": { "type": "string" },
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "name": { "type": "string" },
-                "price": { "type": "number" }
-              },
-              "required": ["name", "price"]
-            }
-          }
-        },
-        "required": ["customer", "items"]
+    },
+    "/api/offers/render": {
+      "post": {
+        "operationId": "renderOfferPDF",
+        "summary": "Generera offert som PDF"
       }
     }
   }

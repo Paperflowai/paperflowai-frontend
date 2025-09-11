@@ -1,63 +1,23 @@
-// src/app/api/offers/create/route.ts
-import { NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from "next/server";
 
-export const runtime = "nodejs";
-
-// Service-klient (server-side) – använder service role key
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,        // ex: https://xxxxx.supabase.co
-  process.env.SUPABASE_SERVICE_ROLE_KEY!        // hemlig key (server)
-);
-
-type Payload = {
-  customerId: string;            // t.ex. "kalles-bygg-123"
-  title?: string;                // valfritt
-  amount?: number;               // valfritt
-  currency?: string;             // valfritt, ex "SEK"
-  data?: Record<string, any>;    // hela offertdatan från GPT
-};
-
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as Partial<Payload>;
-
-    if (!body.customerId) {
-      return new Response(
-        JSON.stringify({ ok: false, error: "customerId saknas" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+    const body = await req.json();
+    // Minimal validering för test
+    if (!body?.customerId || !body?.data) {
+      return NextResponse.json({ ok: false, error: "Missing customerId or data" }, { status: 400 });
     }
-
-    const row = {
-      customer_id: body.customerId,
-      title: body.title ?? null,
-      amount: body.amount ?? null,
-      currency: body.currency ?? "SEK",
-      data: body.data ?? {},
+    const offer = {
+      id: "test-offer-id",
+      customer_id: String(body.customerId),
+      title: String(body.title ?? "Offert"),
+      amount: Number(body.amount ?? 0),
+      currency: String(body.currency ?? "SEK"),
+      file_url: "http://localhost:3000/ping.txt",
+      created_at: new Date().toISOString()
     };
-
-    const { data, error } = await supabase
-      .from("offers")
-      .insert(row)
-      .select()
-      .single();
-
-    if (error) {
-      return new Response(
-        JSON.stringify({ ok: false, error: error.message }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    return new Response(
-      JSON.stringify({ ok: true, offer: data }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    );
+    return NextResponse.json({ ok: true, offer }, { status: 200 });
   } catch (e: any) {
-    return new Response(
-      JSON.stringify({ ok: false, error: e?.message ?? "Serverfel" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
   }
 }
