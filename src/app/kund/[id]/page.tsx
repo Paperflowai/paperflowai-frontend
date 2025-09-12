@@ -4,6 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import LogoutButton from "@/components/LogoutButton";
+import OfferList from "@/components/OfferList";
 
 type DocFile = { name: string; url: string };
 type BkFile = { name: string; url: string; type: "image" | "pdf" };
@@ -718,6 +719,10 @@ export default function KundDetaljsida() {
           </div>
         </div>
       )}
+
+      {/* Offerter */}
+      <h2 className="text-xl font-bold mt-6 mb-3">Offerter</h2>
+      <OfferList customerId={String(id)} />
 
       <h2 className="text-xl font-bold mt-8">📷 Bilder och kladdlappar</h2>
       <input type="file" accept="image/*" multiple onChange={handleImageUpload} className="mt-2 mb-4 text-blue-700 font-semibold cursor-pointer" />
