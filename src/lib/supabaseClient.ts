@@ -4,13 +4,13 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 if (!url || !anon) {
-  // Hjälpsam throw i dev – gör inget i prod om du vill
+  // Hjälpsam varning i dev
   console.warn("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
 }
 
 export const supabase = createClient(url, anon);
 
-// --- Database type definition ---
+// --- Temporary typing shim: export Database type used by supabaseDatabase.ts ---
 // Byt gärna mot genererade typer från Supabase senare.
 export type Database = {
   public: {
