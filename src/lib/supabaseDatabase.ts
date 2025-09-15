@@ -1,14 +1,102 @@
 // src/lib/supabaseDatabase.ts
 import { supabase } from "./supabaseClient";
-import type { Database } from "./supabaseClient";
 
-type Customer = Database['public']['Tables']['customers']['Row'];
-type CustomerInsert = Database['public']['Tables']['customers']['Insert'];
-type CustomerUpdate = Database['public']['Tables']['customers']['Update'];
+// Simple type definitions without Database dependency
+type Customer = {
+  id: string;
+  user_id: string;
+  company_name: string;
+  org_nr: string;
+  contact_person: string;
+  phone: string;
+  email: string;
+  address: string;
+  zip: string;
+  city: string;
+  country: string;
+  contact_date: string;
+  notes: string;
+  customer_number: string;
+  created_at: string;
+  updated_at: string;
+};
 
-type BookkeepingEntry = Database['public']['Tables']['bookkeeping_entries']['Row'];
-type BookkeepingInsert = Database['public']['Tables']['bookkeeping_entries']['Insert'];
-type BookkeepingUpdate = Database['public']['Tables']['bookkeeping_entries']['Update'];
+type CustomerInsert = {
+  id?: string;
+  user_id: string;
+  company_name: string;
+  org_nr?: string;
+  contact_person?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  zip?: string;
+  city?: string;
+  country?: string;
+  contact_date?: string;
+  notes?: string;
+  customer_number?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type CustomerUpdate = {
+  id?: string;
+  user_id?: string;
+  company_name?: string;
+  org_nr?: string;
+  contact_person?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  zip?: string;
+  city?: string;
+  country?: string;
+  contact_date?: string;
+  notes?: string;
+  customer_number?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type BookkeepingEntry = {
+  id: string;
+  user_id: string;
+  customer_id: string;
+  invoice_number: string;
+  invoice_date: string;
+  amount: number;
+  currency: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type BookkeepingInsert = {
+  id?: string;
+  user_id: string;
+  customer_id: string;
+  invoice_number: string;
+  invoice_date: string;
+  amount: number;
+  currency?: string;
+  description?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type BookkeepingUpdate = {
+  id?: string;
+  user_id?: string;
+  customer_id?: string;
+  invoice_number?: string;
+  invoice_date?: string;
+  amount?: number;
+  currency?: string;
+  description?: string;
+  created_at?: string;
+  updated_at?: string;
+};
 
 // Customer functions
 export async function getCustomers(userId: string): Promise<Customer[]> {
