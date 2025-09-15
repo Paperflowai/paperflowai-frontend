@@ -1,19 +1,43 @@
+// src/app/api/offers/create/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import crypto from "crypto";
 
+export const runtime = "nodejs";
+
 type OfferBody = {
   customerId: string;
   title?: string;
   amount?: number;
-  currency?: string;      // default "SEK"
-  needsPrint?: boolean;   // default false
-  data: any;              // hela offertdatan (kund, rader, villkor, mm.)
+  currency?: string;       // default "SEK"
+  needsPrint?: boolean;    // default false
+  data?: any;              // valfritt objekt
+  dataJson?: string;       // NYTT: stringifierad offertdata
 };
 
 function bad(msg: string, code = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status: code });
+}
+
+function safeParse(json?: string): any {
+  if (!json || typeof json !== "string") return undefined;
+  try { return JSON.parse(json); } catch { return undefined; }
+}
+
+function calcAmountFromData(data: any): number | undefined {
+  try {
+    const rows = data?.rader;
+    if (!Array.isArray(rows)) return undefined;
+    const total = rows.reduce((sum: number, r: any) => {
+      const timmar = Number(r?.timmar ?? r?.hours ?? 0);
+      const pris = Number(r?.pris_per_timme ?? r?.price_per_hour ?? 0);
+      return sum + (isFinite(timmar) && isFinite(pris) ? timmar * pris : 0);
+    }, 0);
+    return isFinite(total) ? Math.round(total * 100) / 100 : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function createPdfFromOffer(body: OfferBody): Promise<Uint8Array> {
@@ -33,7 +57,7 @@ async function createPdfFromOffer(body: OfferBody): Promise<Uint8Array> {
 
   // Header
   draw("OFFERT", true, 20);
-  draw(new Date().toLocaleString(), false, 10, rgb(0.4,0.4,0.4));
+  draw(new Date().toLocaleString(), false, 10, rgb(0.4, 0.4, 0.4));
   y -= 6;
 
   // Grunddata
@@ -45,14 +69,14 @@ async function createPdfFromOffer(body: OfferBody): Promise<Uint8Array> {
   y -= 10;
   draw("Sammanfattning av data:", true, 12);
 
-  // Skriv ut några nycklar från data
+  // Lista några nycklar från data
   try {
     const clone = JSON.parse(JSON.stringify(body.data ?? {}));
     const keys = Object.keys(clone).slice(0, 12);
     for (const k of keys) {
       if (y < 60) break;
       const v = typeof clone[k] === "object" ? JSON.stringify(clone[k]) : String(clone[k]);
-      const line = `${k}: ${v}`.slice(0, 110); // klipp långa rader
+      const line = `${k}: ${v}`.slice(0, 110);
       draw(line, false, 10);
     }
   } catch {
@@ -68,38 +92,49 @@ export async function POST(req: Request) {
 
     // 1) Validering
     if (!body?.customerId) return bad("Missing 'customerId'");
-    if (typeof body.data === "undefined") return bad("Missing 'data'");
+
+    // 2) Mappa data/dataJson → body.data
+    const parsed = safeParse(body.dataJson);
+    if (body.data == null && parsed) {
+      body.data = parsed;
+    } else if (body.data && parsed && typeof parsed === "object") {
+      body.data = { ...parsed, ...body.data };
+    } else if (body.data == null) {
+      body.data = { summary: "Ingen strukturerad offertdata skickades." };
+    }
+
+    // 3) Beräkna belopp om saknas/ogiltigt
+    let amount = Number(body.amount);
+    if (!isFinite(amount) || amount <= 0) {
+      const computed = calcAmountFromData(body.data);
+      if (isFinite(computed as number)) amount = computed as number;
+    }
+    if (!isFinite(amount)) amount = 0;
 
     const title = body.title ?? "Offert";
-    const amount = Number(body.amount ?? 0);
     const currency = String(body.currency ?? "SEK");
     const needs_print = Boolean(body.needsPrint ?? false);
 
-    // 2) Skapa PDF
-    const pdfBytes = await createPdfFromOffer(body);
+    // 4) Skapa PDF
+    const pdfBytes = await createPdfFromOffer({ ...body, amount });
 
-    // 3) Storage-path
+    // 5) Storage-path
     const offerId = crypto.randomUUID();
-    const storageBucket = "paperflow-files"; // kontrollera att bucketen är Public i Supabase
+    const storageBucket = "paperflow-files"; // Public bucket i Supabase
     const storagePath = `customers/${body.customerId}/offers/${offerId}.pdf`;
 
-    // 4) Ladda upp till Supabase Storage
-    const { error: upErr } = await supabaseAdmin
-      .storage
+    // 6) Ladda upp PDF
+    const { error: upErr } = await supabaseAdmin.storage
       .from(storageBucket)
-      .upload(storagePath, pdfBytes, {
-        contentType: "application/pdf",
-        upsert: true,
-      });
-
+      .upload(storagePath, pdfBytes, { contentType: "application/pdf", upsert: true });
     if (upErr) return bad(`Storage upload failed: ${upErr.message}`, 500);
 
-    // 5) Public URL
+    // 7) Public URL
     const { data: pub } = supabaseAdmin.storage.from(storageBucket).getPublicUrl(storagePath);
     const file_url = pub?.publicUrl;
     if (!file_url) return bad("Could not generate public URL", 500);
 
-    // 6) Insert i DB
+    // 8) Spara i DB
     const { data: inserted, error: insErr } = await supabaseAdmin
       .from("offers")
       .insert({
@@ -113,10 +148,9 @@ export async function POST(req: Request) {
       })
       .select()
       .single();
-
     if (insErr) return bad(`DB insert failed: ${insErr.message}`, 500);
 
-    // 7) Svar
+    // 9) Svar
     return NextResponse.json({ ok: true, offer: inserted }, { status: 200 });
   } catch (e: any) {
     return bad(e?.message ?? "Unknown error", 500);
