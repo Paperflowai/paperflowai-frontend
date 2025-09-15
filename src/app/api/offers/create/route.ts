@@ -12,8 +12,8 @@ type OfferBody = {
   amount?: number;
   currency?: string;       // default "SEK"
   needsPrint?: boolean;    // default false
-  data?: any;              // valfritt objekt
-  dataJson?: string;       // NYTT: stringifierad offertdata
+  data?: any;              // valfritt objekt (bakåtkompat)
+  dataJson?: string;       // stringifierad offertdata (nytt)
 };
 
 function bad(msg: string, code = 400) {
@@ -69,7 +69,7 @@ async function createPdfFromOffer(body: OfferBody): Promise<Uint8Array> {
   y -= 10;
   draw("Sammanfattning av data:", true, 12);
 
-  // Lista några nycklar från data
+  // Lista nycklar från data
   try {
     const clone = JSON.parse(JSON.stringify(body.data ?? {}));
     const keys = Object.keys(clone).slice(0, 12);
@@ -90,20 +90,22 @@ export async function POST(req: Request) {
   try {
     const body = (await req.json()) as OfferBody;
 
-    // 1) Validering
+    // 1) Minikrav
     if (!body?.customerId) return bad("Missing 'customerId'");
 
-    // 2) Mappa data/dataJson → body.data
+    // 2) Mappa dataJson → data (om skickad)
     const parsed = safeParse(body.dataJson);
     if (body.data == null && parsed) {
       body.data = parsed;
     } else if (body.data && parsed && typeof parsed === "object") {
       body.data = { ...parsed, ...body.data };
-    } else if (body.data == null) {
+    } else if (body.data == null && !body.dataJson) {
       body.data = { summary: "Ingen strukturerad offertdata skickades." };
+    } else if (body.dataJson && !parsed) {
+      return bad("Invalid dataJson format - must be valid JSON string");
     }
 
-    // 3) Beräkna belopp om saknas/ogiltigt
+    // 3) Auto-summa om belopp saknas
     let amount = Number(body.amount);
     if (!isFinite(amount) || amount <= 0) {
       const computed = calcAmountFromData(body.data);
@@ -120,10 +122,10 @@ export async function POST(req: Request) {
 
     // 5) Storage-path
     const offerId = crypto.randomUUID();
-    const storageBucket = "paperflow-files"; // Public bucket i Supabase
+    const storageBucket = "paperflow-files";
     const storagePath = `customers/${body.customerId}/offers/${offerId}.pdf`;
 
-    // 6) Ladda upp PDF
+    // 6) Upload
     const { error: upErr } = await supabaseAdmin.storage
       .from(storageBucket)
       .upload(storagePath, pdfBytes, { contentType: "application/pdf", upsert: true });
@@ -133,6 +135,9 @@ export async function POST(req: Request) {
     const { data: pub } = supabaseAdmin.storage.from(storageBucket).getPublicUrl(storagePath);
     const file_url = pub?.publicUrl;
     if (!file_url) return bad("Could not generate public URL", 500);
+
+    const appOrigin = process.env.NEXT_PUBLIC_APP_ORIGIN || "http://localhost:3000";
+    const customer_url = `${appOrigin}/kund/${encodeURIComponent(body.customerId)}`;
 
     // 8) Spara i DB
     const { data: inserted, error: insErr } = await supabaseAdmin
@@ -151,7 +156,10 @@ export async function POST(req: Request) {
     if (insErr) return bad(`DB insert failed: ${insErr.message}`, 500);
 
     // 9) Svar
-    return NextResponse.json({ ok: true, offer: inserted }, { status: 200 });
+    return NextResponse.json(
+      { ok: true, offer: { ...inserted, customer_url } },
+      { status: 200 }
+    );
   } catch (e: any) {
     return bad(e?.message ?? "Unknown error", 500);
   }

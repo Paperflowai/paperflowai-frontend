@@ -1,9 +1,7 @@
 {
-  "openapi": "3.0.1",
-  "info": { "title": "PaperflowAI Offer API", "version": "1.0.1" },
-  "servers": [
-    { "url": "https://paperflowai-frontend.vercel.app", "description": "production" }
-  ],
+  "openapi": "3.1.0",
+  "info": { "title": "PaperflowAI Offer API", "version": "1.0.2" },
+  "servers": [{ "url": "https://paperflowai-frontend.vercel.app", "description": "production" }],
   "paths": {
     "/api/offers/create": {
       "post": {
@@ -22,16 +20,15 @@
                   "amount": { "type": "number" },
                   "currency": { "type": "string", "default": "SEK" },
                   "needsPrint": { "type": "boolean", "default": false },
-                  "dataJson": { "type": "string", "description": "Stringified JSON of the full offer content" }
+                  "dataJson": { "type": "string", "description": "Stringified JSON with full offer content" }
                 }
               },
               "example": {
                 "customerId": "test-customer-123",
                 "title": "Offert – Takjobb",
-                "amount": 34900,
                 "currency": "SEK",
                 "needsPrint": false,
-                "dataJson": "{\"kund\":{\"namn\":\"Bygg AB\"},\"rader\":[{\"timmar\":10,\"pris_per_timme\":900}]}"
+                "dataJson": "{\"rader\":[{\"timmar\":10,\"pris_per_timme\":900},{\"timmar\":50,\"pris_per_timme\":900}]}"
               }
             }
           }
@@ -56,6 +53,7 @@
                         "amount": { "type": "number" },
                         "currency": { "type": "string" },
                         "file_url": { "type": "string", "format": "uri" },
+                        "customer_url": { "type": "string", "format": "uri", "description": "Direktlänk till kundkortet" },
                         "created_at": { "type": "string", "format": "date-time" }
                       }
                     }
