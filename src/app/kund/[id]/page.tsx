@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import LogoutButton from "@/components/LogoutButton";
 import OfferList from "@/components/OfferList";
+import OfferRealtime from "./OfferRealtime";
 
 type DocFile = { name: string; url: string };
 type BkFile = { name: string; url: string; type: "image" | "pdf" };
@@ -721,6 +722,7 @@ export default function KundDetaljsida() {
       )}
 
       {/* Offerter */}
+      <OfferRealtime customerId={String(id)} />
       <h2 className="text-xl font-bold mt-6 mb-3">Offerter</h2>
       <OfferList customerId={String(id)} />
 

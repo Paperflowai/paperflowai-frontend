@@ -1,6 +1,3 @@
-[33m054f5449[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m Fix PDF rendering: Change toBuffer() to toBlob() for TypeScript compatibility
-[33m6284095e[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Fix PDF route and OfferPdf
-[33mf7645d0e[m Lägg till OfferPdf-komponent (react-pdf)
 
                    SSUUMMMMAARRYY OOFF LLEESSSS CCOOMMMMAANNDDSS
 
