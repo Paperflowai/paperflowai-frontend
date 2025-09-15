@@ -10,131 +10,29 @@ if (!url || !anon) {
 
 export const supabase = createClient(url, anon);
 
-// Database type definition for TypeScript
+// --- Temporary typing shim: export Database type used by supabaseDatabase.ts ---
+// Byt gärna mot genererade typer från Supabase senare.
 export type Database = {
   public: {
     Tables: {
       customers: {
         Row: {
           id: string;
-          user_id: string;
-          company_name: string;
-          org_nr: string;
-          contact_person: string;
-          phone: string;
-          email: string;
-          address: string;
-          zip: string;
-          city: string;
-          country: string;
-          contact_date: string;
-          notes: string;
-          customer_number: string;
+          name: string;
+          orgnr: string | null;
+          email: string | null;
+          phone: string | null;
+          address: string | null;
           created_at: string;
-          updated_at: string;
         };
         Insert: {
           id?: string;
-          user_id: string;
-          company_name: string;
-          org_nr?: string;
-          contact_person?: string;
-          phone?: string;
-          email?: string;
-          address?: string;
-          zip?: string;
-          city?: string;
-          country?: string;
-          contact_date?: string;
-          notes?: string;
-          customer_number?: string;
+          name: string;
+          orgnr?: string | null;
+          email?: string | null;
+          phone?: string | null;
+          address?: string | null;
           created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          company_name?: string;
-          org_nr?: string;
-          contact_person?: string;
-          phone?: string;
-          email?: string;
-          address?: string;
-          zip?: string;
-          city?: string;
-          country?: string;
-          contact_date?: string;
-          notes?: string;
-          customer_number?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-      };
-      bookkeeping_entries: {
-        Row: {
-          id: string;
-          user_id: string;
-          customer_id: string;
-          invoice_number: string;
-          invoice_date: string;
-          amount: number;
-          currency: string;
-          description: string;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          customer_id: string;
-          invoice_number: string;
-          invoice_date: string;
-          amount: number;
-          currency?: string;
-          description?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          customer_id?: string;
-          invoice_number?: string;
-          invoice_date?: string;
-          amount?: number;
-          currency?: string;
-          description?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-      };
-      profiles: {
-        Row: {
-          id: string;
-          email: string;
-          full_name?: string;
-          company_name?: string;
-          phone?: string;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          id: string;
-          email: string;
-          full_name?: string;
-          company_name?: string;
-          phone?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          id?: string;
-          email?: string;
-          full_name?: string;
-          company_name?: string;
-          phone?: string;
-          created_at?: string;
-          updated_at?: string;
         };
       };
     };
