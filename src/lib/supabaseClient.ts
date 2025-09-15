@@ -10,7 +10,7 @@ if (!url || !anon) {
 
 export const supabase = createClient(url, anon);
 
-// --- Temporary typing shim: export Database type used by supabaseDatabase.ts ---
+// --- Database type definition ---
 // Byt gärna mot genererade typer från Supabase senare.
 export type Database = {
   public: {

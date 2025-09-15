@@ -52,3 +52,4 @@ curl -X POST http://127.0.0.1:5000/ocr \
 - `src/app/api/ocr/route.ts` returnerar backendens JSON oförändrat och fallbackar till lokalt backend om env saknas.
 - `ocr_server/app.py` har CORS och `/health` endpoint för Render.
 - Layout/innehåll i existerande sidor är oförändrat.
+"# Force Vercel rebuild" 
