@@ -1,4 +1,5 @@
 // src/app/api/offers/create2/route.ts
+import { isProd } from '@/utils/env';
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
@@ -7,13 +8,51 @@ import crypto from "crypto";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// --- Kund-upsert typer + helpers ---
+type CustomerUpsert = {
+  id: string;
+  name?: string | null;
+  orgnr?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  zip?: string | null;
+  city?: string | null;
+  country?: string | null;
+};
+
+function toObj(v: any) {
+  if (!v) return {};
+  if (typeof v === "string") {
+    try { return JSON.parse(v); } catch { return {}; }
+  }
+  return v;
+}
+
+function extractCustomer(customerId: string, maybeData: any): CustomerUpsert {
+  const d = toObj(maybeData);
+  const c = d.customer || d.kund || d.client || {};
+
+  const name    = c.name || c.namn || d.name || d.namn || null;
+  const orgnr   = c.orgnr || c.orgnummer || null;
+  const email   = c.email || c.e_post || c.mail || null;
+  const phone   = c.phone || c.telefon || null;
+  const address = c.address || c.adress || d.address || d.adress || null;
+  const zip     = c.zip || c.postnummer || c.postnr || null;
+  const city    = c.city || c.ort || null;
+  const country = c.country || c.land || "Sverige";
+
+  return { id: customerId, name, orgnr, email, phone, address, zip, city, country };
+}
+
 type OfferBody = {
   customerId: string;
   title?: string;
   amount?: number;
   currency?: string;
   needsPrint?: boolean;
-  dataJson?: string; // full offert som string
+  data?: any;       // tillåt båda
+  dataJson?: any;   // tillåt båda
 };
 
 function bad(msg: string, code = 400) {
@@ -98,13 +137,34 @@ async function createPdfFromOffer(body: Required<Pick<OfferBody,"customerId">> &
 }
 
 export async function GET() {
+  if (isProd) {
+    return NextResponse.json({ ok: false, error: 'Not available in production' }, { status: 404 });
+  }
   return NextResponse.json({ ok: true, endpoint: "/api/offers/create2" }, { status: 200 });
 }
 
 export async function POST(req: Request) {
+  if (isProd) {
+    return NextResponse.json({ ok: false, error: 'Not available in production' }, { status: 404 });
+  }
   try {
     const body = (await req.json()) as OfferBody;
     if (!body?.customerId) return bad("Missing 'customerId'");
+
+    // 2.x) Upsert kund i public.customers (fortsätt även om det felar)
+    try {
+      const customerPayload = extractCustomer(body.customerId, body.dataJson ?? body.data);
+      if (customerPayload?.id) {
+        const { error: custErr } = await supabaseAdmin
+          .from("customers")
+          .upsert(customerPayload, { onConflict: "id" });
+        if (custErr) {
+          console.warn("customers upsert failed:", custErr.message);
+        }
+      }
+    } catch (e:any) {
+      console.warn("customers upsert exception:", e?.message || e);
+    }
 
     const data = safeParse(body.dataJson) ?? {};
 
