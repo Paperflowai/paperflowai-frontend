@@ -38,6 +38,22 @@ function calcAmountFromData(data: any): number | undefined {
   } catch { return undefined; }
 }
 
+function extractCustomerDetails(raw: any) {
+  const d = raw || {};
+  // Stöd flera möjliga nycklar/strukturer
+  const bucket = d.kund || d.customer || d.customerInfo || d.customer_data || d.client || {};
+  const pick = (obj: any, keys: string[]) =>
+    keys.map(k => obj?.[k]).find(v => typeof v === "string" && v.trim().length) as string | undefined;
+
+  const name   = pick(bucket, ["namn","name","customerName"]) || pick(d, ["kundnamn","customerName"]);
+  const orgnr  = pick(bucket, ["orgnr","orgNo","organisationnummer"]) || pick(d, ["orgnr","orgNo"]);
+  const email  = pick(bucket, ["epost","email"]) || pick(d, ["epost","email"]);
+  const phone  = pick(bucket, ["telefon","phone","tel"]) || pick(d, ["telefon","phone"]);
+  const address= pick(bucket, ["adress","address"]) || pick(d, ["adress","address"]);
+
+  return { name, orgnr, email, phone, address };
+}
+
 async function createPdfFromOffer(body: Required<Pick<OfferBody,"customerId">> & OfferBody, parsedData?: any) {
   const pdfDoc = await PDFDocument.create();
   const page = pdfDoc.addPage([595.28, 841.89]); // A4
@@ -91,6 +107,40 @@ export async function POST(req: Request) {
     if (!body?.customerId) return bad("Missing 'customerId'");
 
     const data = safeParse(body.dataJson) ?? {};
+
+    // Upsert kundkortets info i customer_cards (baserat på customerId)
+    try {
+      const c = extractCustomerDetails(data);
+      const hasAny =
+        (c.name && c.name.trim()) ||
+        (c.orgnr && c.orgnr.trim()) ||
+        (c.email && c.email.trim()) ||
+        (c.phone && c.phone.trim()) ||
+        (c.address && c.address.trim());
+
+      if (hasAny) {
+        const { error: upsertErr } = await supabaseAdmin
+          .from("customer_cards")
+          .upsert(
+            {
+              customer_id: body.customerId,
+              name: c.name ?? null,
+              orgnr: c.orgnr ?? null,
+              email: c.email ?? null,
+              phone: c.phone ?? null,
+              address: c.address ?? null,
+              updated_at: new Date().toISOString()
+            },
+            { onConflict: "customer_id" }
+          );
+        if (upsertErr) {
+          // logga, men blockera inte offertskapandet
+          console.warn("customer_cards upsert failed:", upsertErr.message);
+        }
+      }
+    } catch (e: any) {
+      console.warn("customer_cards upsert exception:", e?.message);
+    }
 
     // Belopp: använd amount, annars räkna från rader
     let amount = Number(body.amount);
