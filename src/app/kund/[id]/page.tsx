@@ -123,6 +123,9 @@ export default function KundDetaljsida() {
   const [documents, setDocuments] = useState<any[]>([]);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
 
+  // 🏢 Företagsuppgifter
+  const [companyData, setCompanyData] = useState<any>(null);
+
   // Hålla koll på Blob-URL:er för att kunna revoke() på unmount
   const objectUrlsRef = useRef<string[]>([]);
 
@@ -440,6 +443,14 @@ Signatur:
       if (response.ok) {
         const data = await response.json();
         setDocuments(data.documents || []);
+        
+        // Hämta företagsdata från senaste dokument
+        if (data.documents && data.documents.length > 0) {
+          const latestDoc = data.documents[0];
+          if (latestDoc.data_json && latestDoc.data_json.foretag) {
+            setCompanyData(latestDoc.data_json.foretag);
+          }
+        }
       } else {
         console.error("Fel vid hämtning av dokument:", await response.text());
       }
@@ -1053,6 +1064,65 @@ Signatur:
           <input id="country" name="country" value={data.country} onChange={handleChange} className="border p-2 rounded" />
         </div>
       </div>
+
+      {/* === Företagsuppgifter === */}
+      {companyData && (
+        <div className="mb-6">
+          <h2 className="text-xl font-bold mb-4">🏢 Företagsuppgifter</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+            {companyData.namn && (
+              <div className="flex flex-col">
+                <label className="text-sm text-gray-600 mb-1">Namn</label>
+                <div className="border p-2 rounded bg-gray-50">{companyData.namn}</div>
+              </div>
+            )}
+            
+            {companyData.orgnr && (
+              <div className="flex flex-col">
+                <label className="text-sm text-gray-600 mb-1">Org.nr</label>
+                <div className="border p-2 rounded bg-gray-50">{companyData.orgnr}</div>
+              </div>
+            )}
+            
+            {companyData.adress && (
+              <div className="flex flex-col">
+                <label className="text-sm text-gray-600 mb-1">Adress</label>
+                <div className="border p-2 rounded bg-gray-50">{companyData.adress}</div>
+              </div>
+            )}
+            
+            {companyData.epost && (
+              <div className="flex flex-col">
+                <label className="text-sm text-gray-600 mb-1">E-post</label>
+                <div className="border p-2 rounded bg-gray-50">{companyData.epost}</div>
+              </div>
+            )}
+            
+            {companyData.telefon && (
+              <div className="flex flex-col">
+                <label className="text-sm text-gray-600 mb-1">Telefon</label>
+                <div className="border p-2 rounded bg-gray-50">{companyData.telefon}</div>
+              </div>
+            )}
+            
+            {companyData.logotyp && (
+              <div className="flex flex-col sm:col-span-2">
+                <label className="text-sm text-gray-600 mb-1">Logotyp</label>
+                <div className="border p-2 rounded bg-gray-50">
+                  <img 
+                    src={companyData.logotyp} 
+                    alt="Företagslogotyp" 
+                    className="max-w-32 max-h-16 object-contain"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* === Offertdata (om de finns) === */}
       {(data.totalSum || data.vatPercent || data.vatAmount || data.validityDays) && (
