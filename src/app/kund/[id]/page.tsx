@@ -18,7 +18,7 @@ type BkFile = { name: string; url: string; type: "image" | "pdf" };
 declare global {
   interface Window {
     pdfjsLib?: any;
-    handleGptResponse?: (gptReply: string) => void;
+    handleGptResponse?: any;
   }
 }
 
@@ -332,6 +332,83 @@ export default function KundDetaljsida() {
 
     } catch (error) {
       console.error('Fel vid hantering av GPT-svar:', error);
+    }
+  }
+
+  // 🔍 Testfunktion för GPT-offertsvar
+  async function testGptResponse() {
+    const testGptReply = `{
+  "customerId": "test-customer-123",
+  "title": "Offert – Renovering",
+  "amount": 45000,
+  "currency": "SEK",
+  "needsPrint": false,
+  "dataJson": {
+    "kund": {
+      "namn": "Bygg AB",
+      "offertnummer": "K-527072",
+      "kontaktperson": "Anna Andersson",
+      "epost": "anna@byggab.se",
+      "telefon": "070-1234567",
+      "adress": "Byggvägen 12",
+      "postnummer": "12345",
+      "ort": "Stockholm",
+      "orgnr": "556677-8899",
+      "datum": "2025-09-17",
+      "befattning": "VD",
+      "land": "Sverige"
+    }
+  }
+}
+
+Offertinnehåll:
+[LOGOTYP HÄR]
+
+OFFERT
+
+Kund: Bygg AB
+Datum: 2025-09-17
+Offertnummer: K-527072
+
+Kundinformation:
+Org.nr: 556677-8899
+Adress: Byggvägen 12
+Kontaktperson: Anna Andersson
+Telefon: 070-1234567
+E-post: anna@byggab.se
+
+Tjänster:
+┌─────────────────┬─────────┬─────────────┬─────────┐
+│ Tjänst          │ Timmar  │ Pris/tim    │ Totalt  │
+├─────────────────┼─────────┼─────────────┼─────────┤
+│ Renovering      │ 50      │ 800 SEK     │ 40 000  │
+│ Material        │ -       │ -           │ 5 000   │
+└─────────────────┴─────────┴─────────────┴─────────┘
+
+Totalsumma: 45 000 SEK exkl. moms
+
+Betalningsvillkor:
+Betaltid: 30 dagar
+Dröjsmålsränta: 8% enligt räntelagen
+Fakturamottagare: faktura@example.se
+Bankgiro: 123-4567
+Notis: Moms tillkommer
+
+GDPR:
+Vi hanterar kunduppgifter enligt Dataskyddsförordningen (GDPR). Personuppgifter används endast för att uppfylla avtal, hantera fakturering och kundkontakt.
+
+Giltighet:
+Denna offert är giltig i 30 dagar från utskriftsdatum. Priser anges exklusive moms.
+
+Signatur:
+[Namn och e-post på undertecknare]`;
+
+    try {
+      await handleGptResponse(testGptReply);
+      alert('✅ Test GPT-offert hanterad! Kontrollera att kundkortet fyllts i och att förhandsvisningen visas.');
+    } catch (error) {
+      console.error('Test GPT-offert fel:', error);
+      alert('❌ Test GPT-offert misslyckades. Kontrollera konsolen för detaljer.');
     }
   }
 
@@ -1093,6 +1170,21 @@ export default function KundDetaljsida() {
           </div>
         </div>
       )}
+
+      {/* === Testfunktion för GPT-offert === */}
+      <div className="mb-6">
+        <h2 className="text-xl font-bold mb-4">🔍 Testfunktioner</h2>
+        <div className="border p-4 rounded bg-yellow-50">
+          <p className="text-sm text-gray-700 mb-3">Testa GPT-offertsvar hantering med hårdkodat exempel:</p>
+          <button 
+            onClick={testGptResponse}
+            className="bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700 font-semibold"
+          >
+            🔍 Testa GPT-offert
+          </button>
+        </div>
+      </div>
+
       <div className="flex gap-4 mt-6">
         <Link href="/dashboard"><button className="bg-gray-300 hover:bg-gray-400 text-black px-4 py-2 rounded">← Tillbaka</button></Link>
       </div>

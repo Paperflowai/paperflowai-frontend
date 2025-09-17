@@ -1,9 +1,3 @@
-declare global {
-  interface Window {
-    handleGptResponse?: (gptReply: string) => Promise<void>;
-  }
-}
-
 export async function generateOffer(payload: any) {
   const response = await fetch('/api/gpt', {
     method: 'POST',
