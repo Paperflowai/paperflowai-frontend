@@ -8,7 +8,32 @@ async function generateCustomOffer(requirements: string, customer: any) {
     // Här skulle du anropa din anpassade offert-GPT API
     // För nu simulerar vi svaret baserat på din GPT-struktur
     
-    const offerContent = `🧾 Offertinnehåll
+    const offerNumber = `OFF-${new Date().getFullYear()}-${Math.floor(Math.random() * 9999).toString().padStart(4, '0')}`;
+    const totalAmount = calculateTotal(requirements);
+    
+    // JSON-delen med alla kund- och offertfält
+    const jsonData = {
+      offertnummer: offerNumber,
+      datum: new Date().toISOString().split('T')[0],
+      titel: `Offert för ${requirements}`,
+      summa: totalAmount,
+      valuta: "SEK",
+      kund: {
+        namn: customer?.companyName || "Ny kund",
+        orgnr: customer?.orgNr || "",
+        kontaktperson: customer?.contactPerson || "",
+        epost: customer?.email || "",
+        telefon: customer?.phone || "",
+        adress: customer?.address || "",
+        postnummer: customer?.zip || "",
+        ort: customer?.city || "",
+        befattning: customer?.role || "",
+        land: customer?.country || "Sverige"
+      }
+    };
+    
+    // Text-delen med offertlayouten för PDF
+    const offerText = `🧾 Offertinnehåll
 
 [LOGOTYP HÄR]
 
@@ -16,11 +41,11 @@ OFFERT
 
 Kund: ${customer?.companyName || "Ny kund"}
 Datum: ${new Date().toLocaleDateString('sv-SE')}
-Offertnummer: OFF-${new Date().getFullYear()}-${Math.floor(Math.random() * 9999).toString().padStart(4, '0')}
+Offertnummer: ${offerNumber}
 
 Kundinformation:
-Org.nr: [Org.nr saknas]
-Adress: [Adress saknas]
+Org.nr: ${customer?.orgNr || "[Org.nr saknas]"}
+Adress: ${customer?.address || "[Adress saknas]"}
 Kontaktperson: ${customer?.contactPerson || "Kontaktperson"}
 Telefon: ${customer?.phone || "Telefon saknas"}
 E-post: ${customer?.email || "E-post saknas"}
@@ -28,7 +53,7 @@ E-post: ${customer?.email || "E-post saknas"}
 Tjänster:
 ${generateServiceTable(requirements)}
 
-Totalsumma: ${calculateTotal(requirements)} SEK exkl. moms
+Totalsumma: ${totalAmount} SEK exkl. moms
 
 Betalningsvillkor:
 Betaltid: 30 dagar
@@ -44,14 +69,17 @@ Giltighet:
 Denna offert är giltig i 30 dagar från utskriftsdatum. Priser anges exklusive moms.
 
 Signatur:
-[Namn och e-post på undertecknare]
+[Namn och e-post på undertecknare]`;
 
-📄 Skapa PDF?
-Vill du att jag skapar PDF:en med detta innehåll? Svara "Ja, skapa PDF:en" så kör vi!`;
-
+    // Kombinera JSON och text för att simulera GPT-svar
+    const gptResponse = JSON.stringify(jsonData) + "\n\n" + offerText;
+    
     return {
+      json: jsonData,
+      text: offerText,
+      gptResponse: gptResponse, // Kombinerat svar för handleGptResponse
       metadata: {
-        offerNumber: `OFF-${new Date().getFullYear()}-${Math.floor(Math.random() * 9999).toString().padStart(4, '0')}`,
+        offerNumber: offerNumber,
         date: new Date().toISOString().split('T')[0],
         validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         currency: "SEK",
@@ -59,11 +87,10 @@ Vill du att jag skapar PDF:en med detta innehåll? Svara "Ja, skapa PDF:en" så 
       },
       items: generateServiceItems(requirements),
       totals: {
-        subtotalExVat: calculateTotal(requirements),
-        vatAmount: calculateTotal(requirements) * 0.25,
-        totalIncVat: calculateTotal(requirements) * 1.25
+        subtotalExVat: totalAmount,
+        vatAmount: totalAmount * 0.25,
+        totalIncVat: totalAmount * 1.25
       },
-      notes: offerContent,
       uncertainties: [],
       customGPT: true
     };
@@ -229,7 +256,11 @@ export async function POST(req: NextRequest) {
       // Här skulle du normalt anropa din offert-GPT API
       const customOfferResponse = await generateCustomOffer(requirements, customer);
       
-      return NextResponse.json({ ok: true, data: customOfferResponse });
+      return NextResponse.json({ 
+        ok: true, 
+        data: customOfferResponse,
+        gptResponse: customOfferResponse.gptResponse // Inkludera för handleGptResponse
+      });
 
     } else if (mode === "chat") {
       // Mock chat svar

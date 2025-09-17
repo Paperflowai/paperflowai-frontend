@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { saveCustomerToLocalStorage, findExistingCustomer, createCustomerFromOffer, Customer } from '@/lib/customerUtils';
+import { saveCustomerToLocalStorage, findExistingCustomer, createCustomerFromOffer, saveOfferToSupabase, Customer } from '@/lib/customerUtils';
 
 export function useCustomerFromOffer() {
   const createOrFindCustomer = useCallback(async (offerData: any, customerData?: any) => {
@@ -23,22 +23,28 @@ export function useCustomerFromOffer() {
 
         const saved = saveCustomerToLocalStorage(updatedCustomer);
         
+        // Spara offert i Supabase
+        const supabaseSaved = await saveOfferToSupabase(offerData, existingCustomer.id);
+        
         return {
           success: saved,
           customer: updatedCustomer,
           customerFound: true,
-          message: "Offert tillagd till befintlig kund"
+          message: `Offert tillagd till befintlig kund${supabaseSaved ? ' och sparad i Supabase' : ''}`
         };
       } else {
         // Skapa ny kund
         const newCustomer = createCustomerFromOffer(offerData, customerData);
         const saved = saveCustomerToLocalStorage(newCustomer);
 
+        // Spara offert i Supabase
+        const supabaseSaved = await saveOfferToSupabase(offerData, newCustomer.id);
+
         return {
           success: saved,
           customer: newCustomer,
           customerFound: false,
-          message: "Ny kund och offert skapade automatiskt"
+          message: `Ny kund och offert skapade automatiskt${supabaseSaved ? ' och sparad i Supabase' : ''}`
         };
       }
     } catch (error) {

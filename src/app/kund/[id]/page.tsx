@@ -18,6 +18,7 @@ type BkFile = { name: string; url: string; type: "image" | "pdf" };
 declare global {
   interface Window {
     pdfjsLib?: any;
+    handleGptResponse?: (gptReply: string) => void;
   }
 }
 
@@ -114,8 +115,20 @@ export default function KundDetaljsida() {
   // 📚 Bokföring (bilder + PDF:er) – kvar i localStorage tills du vill flytta dem också
   const [bookkeepingFiles, setBookkeepingFiles] = useState<BkFile[]>([]);
 
+  // 🤖 GPT-offertförhandsvisning
+  const [gptOfferPreview, setGptOfferPreview] = useState<string>("");
+  const [gptOfferPdfUrl, setGptOfferPdfUrl] = useState<string>("");
+
   // Hålla koll på Blob-URL:er för att kunna revoke() på unmount
   const objectUrlsRef = useRef<string[]>([]);
+
+  // Exponera handleGptResponse globalt för externa GPT-integrationer
+  useEffect(() => {
+    window.handleGptResponse = handleGptResponse;
+    return () => {
+      delete window.handleGptResponse;
+    };
+  }, [data]); // Re-exponera när data ändras
 
   useEffect(() => {
     // Först försök hämta från den nya strukturen (paperflow_customers_v1)
@@ -253,6 +266,73 @@ export default function KundDetaljsida() {
     }
     
     setData(updated);
+  }
+
+  // 🤖 Hantera GPT-offertsvar automatiskt
+  async function handleGptResponse(gptReply: string) {
+    try {
+      // 1. Hitta JSON-delen i GPT-svaret med regex
+      const jsonMatch = gptReply.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.warn("Ingen JSON hittad i GPT-svar");
+        return;
+      }
+
+      // 2. Parsa JSON
+      const jsonData = JSON.parse(jsonMatch[0]);
+      const kund = jsonData.kund || {};
+
+      // 3. Uppdatera kundkortets state med alla fält
+      const updatedData = {
+        ...data,
+        companyName: kund.namn || data.companyName,
+        customerNumber: jsonData.offertnummer || data.customerNumber,
+        contactPerson: kund.kontaktperson || data.contactPerson,
+        email: kund.epost || data.email,
+        phone: kund.telefon || data.phone,
+        address: kund.adress || data.address,
+        zip: kund.postnummer || data.zip,
+        city: kund.ort || data.city,
+        orgNr: kund.orgnr || data.orgNr,
+        contactDate: jsonData.datum || data.contactDate,
+        role: kund.befattning || data.role,
+        country: kund.land || data.country,
+        // Offertdata
+        offerText: jsonData.titel || data.offerText,
+        totalSum: jsonData.summa || data.totalSum
+      };
+
+      persistData(updatedData);
+
+      // 4. Plocka ut textdelen (allt efter JSON)
+      const textStart = gptReply.indexOf(jsonMatch[0]) + jsonMatch[0].length;
+      const textData = gptReply.substring(textStart).trim();
+      
+      // 5. Spara textdelen i state för förhandsvisning
+      setGptOfferPreview(textData);
+
+      // 6. Spara i Supabase
+      const response = await fetch('/api/offers/create-from-gpt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId: id as string,
+          jsonData: jsonData,
+          textData: textData
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setGptOfferPdfUrl(result.pdfUrl);
+        console.log('GPT-offert sparad i Supabase:', result);
+      } else {
+        console.error('Fel vid sparande av GPT-offert:', await response.text());
+      }
+
+    } catch (error) {
+      console.error('Fel vid hantering av GPT-svar:', error);
+    }
   }
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
@@ -506,16 +586,67 @@ export default function KundDetaljsida() {
       if (type === "order") setOrder(newFile);
       if (type === "invoice") setInvoice(newFile);
 
-      // 5) Autofyll vid offert
+      // 5) Autofyll vid offert och spara i Supabase
       if (type === "offert") {
-        const text = await extractTextFromPDF(uploaded);
-        if (text && text.trim().length > 0) {
-          const mapped = parseFieldsFromText(text, uploaded.name);
-          const updated = { ...data, ...mapped };
-          persistData(updated);
-          console.log("Autofyllda fält:", mapped);
-        } else {
-          console.warn("Ingen text hittad i PDF (skannad bild?). Autofyll hoppades över.");
+        try {
+          // Konvertera PDF till base64
+          const arrayBuffer = await uploaded.arrayBuffer();
+          const base64 = Buffer.from(arrayBuffer).toString('base64');
+          
+          // Skicka till API för att extrahera text och spara i Supabase
+          const response = await fetch('/api/pdf-extract-and-parse', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              pdfBase64: base64,
+              customerId: id as string
+            })
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            const parsedData = result.parsedData;
+            
+            // Fyll i kundkortets fält automatiskt
+            const mapped = {
+              companyName: parsedData.customerName || "",
+              orgNr: parsedData.orgNr || "",
+              address: parsedData.address || "",
+              email: parsedData.email || "",
+              phone: parsedData.phone || "",
+              // Lägg till offertdata
+              offerText: result.offer?.data_json?.extractedText || "",
+              totalSum: parsedData.amount || 0,
+              currency: parsedData.currency || "SEK"
+            };
+            
+            const updated = { ...data, ...mapped };
+            persistData(updated);
+            console.log("Autofyllda fält och sparad i Supabase:", mapped);
+            
+            // Visa bekräftelse
+            alert(`Offert extraherad och sparad i Supabase!\nKund: ${parsedData.customerName}\nBelopp: ${parsedData.amount} ${parsedData.currency}`);
+          } else {
+            console.error("API error:", await response.text());
+            // Fallback till befintlig logik
+            const text = await extractTextFromPDF(uploaded);
+            if (text && text.trim().length > 0) {
+              const mapped = parseFieldsFromText(text, uploaded.name);
+              const updated = { ...data, ...mapped };
+              persistData(updated);
+              console.log("Autofyllda fält (fallback):", mapped);
+            }
+          }
+        } catch (error) {
+          console.error("Error processing PDF:", error);
+          // Fallback till befintlig logik
+          const text = await extractTextFromPDF(uploaded);
+          if (text && text.trim().length > 0) {
+            const mapped = parseFieldsFromText(text, uploaded.name);
+            const updated = { ...data, ...mapped };
+            persistData(updated);
+            console.log("Autofyllda fält (fallback):", mapped);
+          }
         }
       }
     } finally {
@@ -608,6 +739,14 @@ export default function KundDetaljsida() {
             return (
             <div className="min-h-screen bg-white p-6 text-gray-800 max-w-4xl mx-auto">
               <LogoutButton />
+              
+              {/* Lokal utvecklingsbanner */}
+              {process.env.NODE_ENV === 'development' && (
+                <div className="bg-yellow-400 text-black text-center py-2 px-4 rounded-md mb-4 font-semibold">
+                  DU ÄR I LOKAL VERSION (localhost:3000)
+                </div>
+              )}
+              
               <h1 className="text-3xl font-bold mb-6">Kundkort</h1>
 
       {/* Till bokföringen-knapp */}
@@ -923,6 +1062,34 @@ export default function KundDetaljsida() {
           <h2 className="text-xl font-bold mb-4">📄 Offerttext från chatten</h2>
           <div className="border p-4 rounded bg-gray-50">
             <pre className="whitespace-pre-wrap text-sm font-mono">{data.offerText}</pre>
+          </div>
+        </div>
+      )}
+
+      {/* === GPT-offertförhandsvisning === */}
+      {gptOfferPreview && (
+        <div className="mb-6">
+          <h2 className="text-xl font-bold mb-4">🤖 GPT-offertförhandsvisning</h2>
+          <div className="border p-4 rounded bg-blue-50">
+            <pre className="whitespace-pre-wrap text-sm">{gptOfferPreview}</pre>
+            {gptOfferPdfUrl && (
+              <div className="mt-4 flex gap-2">
+                <a 
+                  href={gptOfferPdfUrl} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+                >
+                  📄 Öppna PDF
+                </a>
+                <button 
+                  onClick={() => printPdf(gptOfferPdfUrl)} 
+                  className="bg-gray-300 px-4 py-2 rounded hover:bg-gray-400"
+                >
+                  🖨️ Skriv ut
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

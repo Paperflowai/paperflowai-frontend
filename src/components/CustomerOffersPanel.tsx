@@ -87,7 +87,7 @@ export default function CustomerOffersPanel({ customerId }: Props) {
 
       {offers.length === 0 ? (
         <p className="text-sm text-gray-500">
-          Inga offerter sparade ännu för denna kund. Gå till Chat och klicka “Spara till kundkort”.
+          Inga offerter sparade ännu för denna kund. Gå till Chat och klicka "Skicka till kundkort".
         </p>
       ) : (
         <ul className="divide-y divide-gray-100">

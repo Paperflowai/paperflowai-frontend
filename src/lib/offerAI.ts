@@ -1,3 +1,9 @@
+declare global {
+  interface Window {
+    handleGptResponse?: (gptReply: string) => Promise<void>;
+  }
+}
+
 export async function generateOffer(payload: any) {
   const response = await fetch('/api/gpt', {
     method: 'POST',
@@ -18,6 +24,15 @@ export async function generateOffer(payload: any) {
   
   if (!data.ok) {
     throw new Error(data.error || 'Failed to generate offer');
+  }
+
+  // Automatiskt hantera GPT-svar om handleGptResponse finns
+  if (data.gptResponse && window.handleGptResponse) {
+    try {
+      await window.handleGptResponse(data.gptResponse);
+    } catch (error) {
+      console.error('Fel vid automatisk hantering av GPT-svar:', error);
+    }
   }
 
   return data.data;
