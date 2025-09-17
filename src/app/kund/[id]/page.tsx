@@ -119,6 +119,10 @@ export default function KundDetaljsida() {
   const [gptOfferPreview, setGptOfferPreview] = useState<string>("");
   const [gptOfferPdfUrl, setGptOfferPdfUrl] = useState<string>("");
 
+  // 📄 Dokumentflöde
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(false);
+
   // Hålla koll på Blob-URL:er för att kunna revoke() på unmount
   const objectUrlsRef = useRef<string[]>([]);
 
@@ -129,6 +133,13 @@ export default function KundDetaljsida() {
       delete window.handleGptResponse;
     };
   }, [data]); // Re-exponera när data ändras
+
+  // Ladda dokument när sidan laddas
+  useEffect(() => {
+    if (id) {
+      loadDocuments();
+    }
+  }, [id]);
 
   useEffect(() => {
     // Först försök hämta från den nya strukturen (paperflow_customers_v1)
@@ -320,8 +331,8 @@ export default function KundDetaljsida() {
       // 6. Spara textdelen i state för förhandsvisning
       setGptOfferPreview(cleanTextData);
 
-      // 7. Spara i Supabase med rensad text
-      const response = await fetch('/api/offers/create-from-gpt', {
+      // 7. Spara i Supabase documents-tabellen med rensad text
+      const response = await fetch('/api/documents/create-from-gpt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -418,6 +429,99 @@ Signatur:
     } catch (error) {
       console.error('Test GPT-offert fel:', error);
       alert('❌ Test GPT-offert misslyckades. Kontrollera konsolen för detaljer.');
+    }
+  }
+
+  // 📄 Hämta dokument för kunden
+  async function loadDocuments() {
+    setLoadingDocuments(true);
+    try {
+      const response = await fetch(`/api/documents/list?customerId=${id}`);
+      if (response.ok) {
+        const data = await response.json();
+        setDocuments(data.documents || []);
+      } else {
+        console.error("Fel vid hämtning av dokument:", await response.text());
+      }
+    } catch (error) {
+      console.error("Fel vid hämtning av dokument:", error);
+    } finally {
+      setLoadingDocuments(false);
+    }
+  }
+
+  // 📑 Skapa orderbekräftelse
+  async function createOrderConfirmation() {
+    try {
+      const response = await fetch('/api/documents/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId: id
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        alert(`✅ ${result.message}`);
+        loadDocuments(); // Uppdatera dokumentlista
+      } else {
+        const error = await response.text();
+        alert(`❌ Fel vid skapande av orderbekräftelse: ${error}`);
+      }
+    } catch (error) {
+      console.error("Fel vid skapande av orderbekräftelse:", error);
+      alert("❌ Fel vid skapande av orderbekräftelse");
+    }
+  }
+
+  // 💰 Skapa faktura
+  async function createInvoice() {
+    try {
+      const response = await fetch('/api/documents/create-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId: id
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        alert(`✅ ${result.message}`);
+        loadDocuments(); // Uppdatera dokumentlista
+      } else {
+        const error = await response.text();
+        alert(`❌ Fel vid skapande av faktura: ${error}`);
+      }
+    } catch (error) {
+      console.error("Fel vid skapande av faktura:", error);
+      alert("❌ Fel vid skapande av faktura");
+    }
+  }
+
+  // 📤 Skicka till bokföring
+  async function sendToBookkeeping() {
+    try {
+      const response = await fetch('/api/documents/send-to-bookkeeping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customerId: id
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        alert(`✅ ${result.message}`);
+        loadDocuments(); // Uppdatera dokumentlista
+      } else {
+        const error = await response.text();
+        alert(`❌ Fel vid skickande till bokföring: ${error}`);
+      }
+    } catch (error) {
+      console.error("Fel vid skickande till bokföring:", error);
+      alert("❌ Fel vid skickande till bokföring");
     }
   }
 
@@ -1191,6 +1295,101 @@ Signatur:
           >
             🔍 Testa GPT-offert
           </button>
+        </div>
+      </div>
+
+      {/* === Dokumentflöde === */}
+      <div className="mb-6">
+        <h2 className="text-xl font-bold mb-4">📄 Dokumentflöde</h2>
+        
+        {/* Dokumentlista */}
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold mb-2">Befintliga dokument:</h3>
+          {loadingDocuments ? (
+            <p className="text-gray-500">Laddar dokument...</p>
+          ) : documents.length === 0 ? (
+            <p className="text-gray-500">Inga dokument ännu</p>
+          ) : (
+            <div className="space-y-2">
+              {documents.map((doc) => (
+                <div key={doc.id} className="border p-3 rounded bg-gray-50">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-semibold">
+                        {doc.type === 'offert' && '🧾'} 
+                        {doc.type === 'order' && '📑'} 
+                        {doc.type === 'faktura' && '💰'} 
+                        {doc.title}
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        {doc.amount} {doc.currency} • {new Date(doc.created_at).toLocaleDateString('sv-SE')}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      {doc.type === 'offert' && (
+                        <button
+                          onClick={() => createOrderConfirmation()}
+                          className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700"
+                        >
+                          📑 Skapa orderbekräftelse
+                        </button>
+                      )}
+                      {doc.type === 'order' && (
+                        <button
+                          onClick={() => createInvoice()}
+                          className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
+                        >
+                          💰 Skapa faktura
+                        </button>
+                      )}
+                      {doc.type === 'faktura' && (
+                        <button
+                          onClick={() => sendToBookkeeping()}
+                          className="bg-purple-600 text-white px-3 py-1 rounded text-sm hover:bg-purple-700"
+                        >
+                          📤 Skicka till bokföring
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Snabbknappar för dokumentflöde */}
+        <div className="border p-4 rounded bg-blue-50">
+          <h3 className="text-lg font-semibold mb-3">Dokumentflöde:</h3>
+          <div className="flex flex-wrap gap-2 mb-3">
+            <span className="text-sm text-gray-600">🧾 Offert → 📑 Orderbekräftelse → 💰 Faktura → 📤 Bokföring</span>
+          </div>
+          
+          {/* Snabbknappar för att skapa nästa dokument i kedjan */}
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => createOrderConfirmation()}
+              className="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700"
+            >
+              📑 Skapa orderbekräftelse från senaste offert
+            </button>
+            <button
+              onClick={() => createInvoice()}
+              className="bg-green-600 text-white px-3 py-2 rounded text-sm hover:bg-green-700"
+            >
+              💰 Skapa faktura från senaste order
+            </button>
+            <button
+              onClick={() => sendToBookkeeping()}
+              className="bg-purple-600 text-white px-3 py-2 rounded text-sm hover:bg-purple-700"
+            >
+              📤 Skicka senaste faktura till bokföring
+            </button>
+          </div>
+          
+          <p className="text-xs text-gray-500 mt-2">
+            Snabbknappar skapar nästa dokument i kedjan automatiskt från senaste dokumentet av rätt typ
+          </p>
         </div>
       </div>
 
