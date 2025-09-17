@@ -1,26 +1,29 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 
-function bad(msg: string, code = 400) {
-  return NextResponse.json({ ok: false, error: msg }, { status: code });
-}
-
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const customerId = searchParams.get("customerId");
-    if (!customerId) return bad("Missing customerId");
 
-    const { data, error } = await supabaseAdmin
-      .from("customer_cards")
-      .select("customer_id,name,orgnr,email,phone,address,updated_at")
-      .eq("customer_id", customerId)
-      .maybeSingle();
+    if (!customerId) {
+      return NextResponse.json({ ok: false, error: "Missing customerId parameter" }, { status: 400 });
+    }
 
-    if (error) return bad(`DB error: ${error.message}`, 500);
+    const { data: card, error } = await supabaseAdmin
+      .from("customers")
+      .select("id,name,orgnr,email,phone,address,zip,city,country,updated_at")
+      .eq("id", customerId)
+      .single();
 
-    return NextResponse.json({ ok: true, card: data ?? null }, { status: 200 });
+    if (error && error.code !== "PGRST116") { // PGRST116 = no rows found
+      console.error("Error fetching customer card:", error);
+      return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true, card: card || null }, { status: 200 });
   } catch (e: any) {
-    return bad(e?.message ?? "Unknown error", 500);
+    console.error("Customer card API error:", e);
+    return NextResponse.json({ ok: false, error: e?.message ?? "Unknown error" }, { status: 500 });
   }
 }

@@ -847,12 +847,20 @@ useEffect(() => {
         
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3">
-          <button
-            onClick={skapaNyKund}
-            className="w-full sm:w-auto bg-green-600 text-white px-5 py-3 md:px-4 md:py-2 text-base md:text-sm rounded-lg hover:bg-green-700"
-          >
-            + Lägg till kund
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={skapaNyKund}
+              className="w-full sm:w-auto bg-green-600 text-white px-5 py-3 md:px-4 md:py-2 text-base md:text-sm rounded-lg hover:bg-green-700"
+            >
+              + Lägg till kund
+            </button>
+            <Link
+              href="/test-customer"
+              className="w-full sm:w-auto bg-blue-600 text-white px-5 py-3 md:px-4 md:py-2 text-base md:text-sm rounded-lg hover:bg-blue-700 text-center"
+            >
+              Test CustomerOffersPanel
+            </Link>
+          </div>
 
           <input
             type="text"

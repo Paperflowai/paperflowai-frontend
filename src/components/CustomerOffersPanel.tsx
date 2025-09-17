@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Customer, Offer } from "@/types/offert";
+import { useCustomerFromOffer } from "@/hooks/useCustomerFromOffer";
 
 type Props = {
   customerId: string; // id från /kund/[id]
@@ -13,6 +14,7 @@ type StoreCustomer = Customer & { id: string };
 export default function CustomerOffersPanel({ customerId }: Props) {
   const [customers, setCustomers] = useState<StoreCustomer[]>([]);
   const [loading, setLoading] = useState(true);
+  const { createOrFindCustomer } = useCustomerFromOffer();
 
   useEffect(() => {
     try {
@@ -53,6 +55,25 @@ export default function CustomerOffersPanel({ customerId }: Props) {
 
   const offers = customer.offers ?? [];
 
+  const handleSendToCustomerCard = async (offer: Offer) => {
+    try {
+      const result = await createOrFindCustomer(offer);
+      
+      if (result.success) {
+        alert(`${result.message}\nKund-ID: ${result.customer.id}\nKundnummer: ${result.customer.customerNumber}`);
+        
+        // Uppdatera kundlistan
+        const raw = localStorage.getItem("paperflow_customers_v1");
+        const parsed = raw ? (JSON.parse(raw) as StoreCustomer[]) : [];
+        setCustomers(parsed);
+      } else {
+        alert(`Fel: ${result.error || 'Kunde inte skapa/hitta kund'}`);
+      }
+    } catch (error) {
+      alert(`Fel: ${error instanceof Error ? error.message : 'Okänt fel'}`);
+    }
+  };
+
   return (
     <div className="w-full bg-white/80 border border-gray-200 rounded-2xl shadow-sm p-4">
       <div className="flex items-center justify-between mb-3">
@@ -85,7 +106,13 @@ export default function CustomerOffersPanel({ customerId }: Props) {
                 )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {/* Vi kopplar "Skapa orderbekräftelse" i nästa steg */}
+                <button
+                  type="button"
+                  className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                  onClick={() => handleSendToCustomerCard(o)}
+                >
+                  Skicka till kundkort
+                </button>
                 <button
                   type="button"
                   className="text-xs px-3 py-1.5 rounded-md bg-emerald-600 text-white hover:bg-emerald-700"

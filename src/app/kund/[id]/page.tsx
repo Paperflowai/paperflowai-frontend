@@ -1,11 +1,16 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
+import { useParams } from "next/navigation";
+import OfferList from "@/components/OfferList";
+import DocumentOverview from "@/components/DocumentOverview";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import LogoutButton from "@/components/LogoutButton";
-import OfferList from "@/components/OfferList";
 import OfferRealtime from "./OfferRealtime";
+
+const CustomerCardInfo = dynamic(() => import("@/components/CustomerCardInfo"), { ssr: false });
 
 type DocFile = { name: string; url: string };
 type BkFile = { name: string; url: string; type: "image" | "pdf" };
@@ -70,9 +75,9 @@ async function idbDel(key: string) {
    Komponent
    ============================ */
 export default function KundDetaljsida() {
-  const params = useParams();
+  const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const id = parseInt(params.id as string);
+  const idNumber = parseInt(id as string);
 
   const [data, setData] = useState({
     companyName: "",
@@ -115,7 +120,7 @@ export default function KundDetaljsida() {
   useEffect(() => {
     // Först försök hämta från den nya strukturen (paperflow_customers_v1)
     const existingCustomers = JSON.parse(localStorage.getItem('paperflow_customers_v1') || '[]');
-    const customer = existingCustomers.find((c: any) => String(c.id) === String(id));
+    const customer = existingCustomers.find((c: any) => String(c.id) === String(idNumber));
     
     if (customer) {
       // Använd data från den nya strukturen
@@ -142,7 +147,7 @@ export default function KundDetaljsida() {
       });
     } else {
       // Fallback till gamla strukturen
-      const saved = localStorage.getItem(`kund_${id}`);
+      const saved = localStorage.getItem(`kund_${idNumber}`);
       if (saved) {
         const parsed = JSON.parse(saved);
         setData({
@@ -166,21 +171,21 @@ export default function KundDetaljsida() {
           vatAmount: "",
           validityDays: ""
         };
-        localStorage.setItem(`kund_${id}`, JSON.stringify(initialData));
+        localStorage.setItem(`kund_${idNumber}`, JSON.stringify(initialData));
         setData(initialData);
       }
     }
 
-    const savedImages = localStorage.getItem(`kund_images_${id}`);
+    const savedImages = localStorage.getItem(`kund_images_${idNumber}`);
     if (savedImages) setImages(JSON.parse(savedImages));
 
     // Hämta enbart namn från localStorage (URL återskapas från IndexedDB)
-    const savedOffertMeta = localStorage.getItem(`kund_offert_${id}`);
-    const savedOrderMeta = localStorage.getItem(`kund_order_${id}`);
-    const savedInvoiceMeta = localStorage.getItem(`kund_invoice_${id}`);
+    const savedOffertMeta = localStorage.getItem(`kund_offert_${idNumber}`);
+    const savedOrderMeta = localStorage.getItem(`kund_order_${idNumber}`);
+    const savedInvoiceMeta = localStorage.getItem(`kund_invoice_${idNumber}`);
 
     async function restoreDoc(type: "offert" | "order" | "invoice", metaStr: string | null) {
-      const key = `${type}_${id}`;
+      const key = `${type}_${idNumber}`;
       const blob = await idbGet(key);
       if (blob) {
         const name = metaStr ? (JSON.parse(metaStr).name as string) : `${type}.pdf`;
@@ -199,10 +204,10 @@ export default function KundDetaljsida() {
       .then(() => restoreDoc("invoice", savedInvoiceMeta))
       .catch(() => {});
 
-    const savedStatus = localStorage.getItem(`kund_sent_${id}`);
+    const savedStatus = localStorage.getItem(`kund_sent_${idNumber}`);
     if (savedStatus) setSentStatus(JSON.parse(savedStatus));
 
-    const savedBk = localStorage.getItem(`kund_bookkeeping_${id}`);
+    const savedBk = localStorage.getItem(`kund_bookkeeping_${idNumber}`);
     if (savedBk) setBookkeepingFiles(JSON.parse(savedBk));
 
     return () => {
@@ -210,12 +215,12 @@ export default function KundDetaljsida() {
       objectUrlsRef.current = [];
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [idNumber]);
 
   function persistData(updated: typeof data) {
     // Spara till den nya strukturen (paperflow_customers_v1)
     const existingCustomers = JSON.parse(localStorage.getItem('paperflow_customers_v1') || '[]');
-    const customerIndex = existingCustomers.findIndex((c: any) => String(c.id) === String(id));
+    const customerIndex = existingCustomers.findIndex((c: any) => String(c.id) === String(idNumber));
     
     if (customerIndex !== -1) {
       // Uppdatera befintlig kund
@@ -244,7 +249,7 @@ export default function KundDetaljsida() {
       localStorage.setItem('paperflow_customers_v1', JSON.stringify(existingCustomers));
     } else {
       // Fallback till gamla strukturen
-      localStorage.setItem(`kund_${id}`, JSON.stringify(updated));
+      localStorage.setItem(`kund_${idNumber}`, JSON.stringify(updated));
     }
     
     setData(updated);
@@ -267,7 +272,7 @@ export default function KundDetaljsida() {
         const newImage = { name: file.name, url: result };
         setImages((prev) => {
           const updated = [...prev, newImage];
-          localStorage.setItem(`kund_images_${id}`, JSON.stringify(updated));
+          localStorage.setItem(`kund_images_${idNumber}`, JSON.stringify(updated));
           return updated;
         });
       };
@@ -278,7 +283,7 @@ export default function KundDetaljsida() {
   function deleteImage(index: number) {
     setImages((prev) => {
       const updated = [...prev.slice(0, index), ...prev.slice(index + 1)];
-      localStorage.setItem(`kund_images_${id}`, JSON.stringify(updated));
+      localStorage.setItem(`kund_images_${idNumber}`, JSON.stringify(updated));
       return updated;
     });
   }
@@ -462,12 +467,12 @@ export default function KundDetaljsida() {
       vatAmount: "",
       validityDays: ""
     };
-    localStorage.setItem(`kund_${id}`, JSON.stringify(tomData));
+    localStorage.setItem(`kund_${idNumber}`, JSON.stringify(tomData));
     setData(tomData);
 
     const newStatus = { ...sentStatus, offert: "" };
     setSentStatus(newStatus);
-    localStorage.setItem(`kund_sent_${id}`, JSON.stringify(newStatus));
+    localStorage.setItem(`kund_sent_${idNumber}`, JSON.stringify(newStatus));
   }
 
   // === Uppladdning (IndexedDB + säker reset av input) ===
@@ -484,7 +489,7 @@ export default function KundDetaljsida() {
 
     try {
       // 1) Spara filen (Blob) i IndexedDB
-      const key = `${type}_${id}`;
+      const key = `${type}_${idNumber}`;
       await idbSet(key, uploaded);
 
       // 2) Skapa objectURL för visning nu
@@ -493,7 +498,7 @@ export default function KundDetaljsida() {
 
       // 3) Spara ENDAST filnamnet i localStorage
       const meta = { name: uploaded.name };
-      localStorage.setItem(`kund_${type}_${id}`, JSON.stringify(meta));
+      localStorage.setItem(`kund_${type}_${idNumber}`, JSON.stringify(meta));
 
       // 4) Uppdatera state
       const newFile = { name: uploaded.name, url };
@@ -540,7 +545,7 @@ export default function KundDetaljsida() {
 
     const newStatus = { ...sentStatus, [typ]: now };
     setSentStatus(newStatus);
-    localStorage.setItem(`kund_sent_${id}`, JSON.stringify(newStatus));
+    localStorage.setItem(`kund_sent_${idNumber}`, JSON.stringify(newStatus));
 
     alert(`${typ} skickad till ${data.email}`);
   }
@@ -571,7 +576,7 @@ export default function KundDetaljsida() {
         const entry: BkFile = { name: file.name, url: result, type };
         setBookkeepingFiles((prev) => {
           const updated = [...prev, entry];
-          localStorage.setItem(`kund_bookkeeping_${id}`, JSON.stringify(updated));
+          localStorage.setItem(`kund_bookkeeping_${idNumber}`, JSON.stringify(updated));
           return updated;
         });
       };
@@ -584,16 +589,16 @@ export default function KundDetaljsida() {
   function deleteBookkeeping(index: number) {
     setBookkeepingFiles((prev) => {
       const updated = [...prev.slice(0, index), ...prev.slice(index + 1)];
-      localStorage.setItem(`kund_bookkeeping_${id}`, JSON.stringify(updated));
+      localStorage.setItem(`kund_bookkeeping_${idNumber}`, JSON.stringify(updated));
       return updated;
     });
   }
 
   // Ta bort en huvud-PDF
   async function removeDoc(type: "offert" | "order" | "invoice") {
-    const key = `${type}_${id}`;
+    const key = `${type}_${idNumber}`;
     await idbDel(key);
-    localStorage.removeItem(`kund_${type}_${id}`);
+    localStorage.removeItem(`kund_${type}_${idNumber}`);
 
     if (type === "offert") setOffert(null);
     if (type === "order") setOrder(null);
@@ -620,6 +625,41 @@ export default function KundDetaljsida() {
           Till bokföringen →
         </Link>
       </div>
+
+      {/* Kunduppgifter – visas högt upp, mobilvänligt */}
+      <section className="mt-3 mb-4">
+        <CustomerCardInfo customerId={id as string} />
+      </section>
+
+      {/* Dokumentöversikt – liknande bokföringsprogram */}
+      <section id="dokument" className="mt-3 mb-6">
+        <h2 className="text-lg font-semibold mb-2 text-gray-800">Dokumentöversikt</h2>
+        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <DocumentOverview customerId={id as string} />
+        </div>
+      </section>
+
+      {/* Offerter – placerad högt upp under knapparna (mobilvänlig) */}
+      <section id="offerter" className="mt-3 mb-6">
+        <h2 className="text-lg font-semibold mb-2 text-gray-800 flex items-center gap-2">
+          Offerter
+          <span className="text-xs text-gray-500">
+            <span className="text-green-600">✓ Klar</span> • 
+            <span className="text-orange-600">⚠ Skickad</span> • 
+            <span className="text-red-600">✗ Ej skickad</span>
+          </span>
+        </h2>
+        <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
+          <OfferList 
+            customerId={id as string} 
+            customerEmail={data.email} 
+            onEmailUpdate={(email) => {
+              const updated = { ...data, email };
+              persistData(updated);
+            }}
+          />
+        </div>
+      </section>
 
       {/* === Kunduppgifter med rubriker === */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
@@ -723,8 +763,6 @@ export default function KundDetaljsida() {
 
       {/* Offerter */}
       <OfferRealtime customerId={String(id)} />
-      <h2 className="text-xl font-bold mt-6 mb-3">Offerter</h2>
-      <OfferList customerId={String(id)} />
 
       <h2 className="text-xl font-bold mt-8">📷 Bilder och kladdlappar</h2>
       <input type="file" accept="image/*" multiple onChange={handleImageUpload} className="mt-2 mb-4 text-blue-700 font-semibold cursor-pointer" />

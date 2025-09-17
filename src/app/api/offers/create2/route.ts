@@ -35,8 +35,8 @@ function extractCustomer(customerId: string, maybeData: any): CustomerUpsert {
 
   const name    = c.name || c.namn || d.name || d.namn || null;
   const orgnr   = c.orgnr || c.orgnummer || null;
-  const email   = c.email || c.e_post || c.mail || null;
-  const phone   = c.phone || c.telefon || null;
+  const email   = c.email || c.epost || c.e_post || c.mail || d.email || d.epost || null;
+  const phone   = c.phone || c.telefon || c.telefonnummer || d.phone || d.telefon || null;
   const address = c.address || c.adress || d.address || d.adress || null;
   const zip     = c.zip || c.postnummer || c.postnr || null;
   const city    = c.city || c.ort || null;
