@@ -268,6 +268,12 @@ export default function KundDetaljsida() {
     setData(updated);
   }
 
+  // 🧹 Rensa offerttext från box-drawing-tecken
+  function cleanOfferText(text: string): string {
+    // Ta bort alla box-drawing-tecken (Unicode U+2500-U+257F)
+    return text.replace(/[\u2500-\u257F]/g, "");
+  }
+
   // 🤖 Hantera GPT-offertsvar automatiskt
   async function handleGptResponse(gptReply: string) {
     try {
@@ -306,19 +312,22 @@ export default function KundDetaljsida() {
 
       // 4. Plocka ut textdelen (allt efter JSON)
       const textStart = gptReply.indexOf(jsonMatch[0]) + jsonMatch[0].length;
-      const textData = gptReply.substring(textStart).trim();
+      const rawTextData = gptReply.substring(textStart).trim();
       
-      // 5. Spara textdelen i state för förhandsvisning
-      setGptOfferPreview(textData);
+      // 5. Rensa textdelen från box-drawing-tecken
+      const cleanTextData = cleanOfferText(rawTextData);
+      
+      // 6. Spara textdelen i state för förhandsvisning
+      setGptOfferPreview(cleanTextData);
 
-      // 6. Spara i Supabase
+      // 7. Spara i Supabase med rensad text
       const response = await fetch('/api/offers/create-from-gpt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customerId: id as string,
           jsonData: jsonData,
-          textData: textData
+          textData: cleanTextData
         })
       });
 
@@ -405,7 +414,7 @@ Signatur:
 
     try {
       await handleGptResponse(testGptReply);
-      alert('✅ Test GPT-offert hanterad! Kontrollera att kundkortet fyllts i och att förhandsvisningen visas.');
+      alert('✅ Test GPT-offert hanterad! Kontrollera att kundkortet fyllts i och att förhandsvisningen visas (box-drawing-tecken rensade).');
     } catch (error) {
       console.error('Test GPT-offert fel:', error);
       alert('❌ Test GPT-offert misslyckades. Kontrollera konsolen för detaljer.');

@@ -71,12 +71,15 @@ Denna offert är giltig i 30 dagar från utskriftsdatum. Priser anges exklusive 
 Signatur:
 [Namn och e-post på undertecknare]`;
 
+    // Rensa offerttext från box-drawing-tecken
+    const cleanOfferText = offerText.replace(/[\u2500-\u257F]/g, "");
+    
     // Kombinera JSON och text för att simulera GPT-svar
-    const gptResponse = JSON.stringify(jsonData) + "\n\n" + offerText;
+    const gptResponse = JSON.stringify(jsonData) + "\n\n" + cleanOfferText;
     
     return {
       json: jsonData,
-      text: offerText,
+      text: cleanOfferText,
       gptResponse: gptResponse, // Kombinerat svar för handleGptResponse
       metadata: {
         offerNumber: offerNumber,
