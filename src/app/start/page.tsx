@@ -34,11 +34,6 @@ export default function StartPage() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <Card
-            title="💬 Chat / Offertskapare"
-            desc="Skapa offerter med GPT."
-            href="/chat"
-          />
-          <Card
             title="🧾 Fota kvitto"
             desc="Ladda upp/fota kvitton till bokföringen."
             href="/fota-kvitto"
