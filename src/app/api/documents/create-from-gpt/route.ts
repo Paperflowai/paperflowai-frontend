@@ -8,6 +8,7 @@ type CreateFromGptBody = {
   customerId: string;
   jsonData: any;
   textData: string;
+  documentType?: string;
 };
 
 function bad(msg: string, code = 400) {
@@ -17,7 +18,7 @@ function bad(msg: string, code = 400) {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as CreateFromGptBody;
-    const { customerId, jsonData, textData } = body;
+    const { customerId, jsonData, textData, documentType } = body;
 
     if (!customerId || !jsonData) {
       return bad("Missing required fields: customerId, jsonData");
@@ -26,17 +27,17 @@ export async function POST(req: Request) {
     // Generera unikt ID för dokumentet
     const documentId = crypto.randomUUID();
 
-    // Spara offert i documents-tabellen
+    // Spara dokument i documents-tabellen
     const { data, error } = await supabaseAdmin
       .from("documents")
       .insert({
         id: documentId,
         customer_id: customerId,
-        type: "offert",
-        title: jsonData.title || "GPT-genererad offert",
-        amount: jsonData.amount || 0,
-        currency: jsonData.currency || "SEK",
-        data_json: jsonData,
+        type: jsonData.documentType ?? "offert",
+        title: jsonData.title ?? "Offert",
+        amount: jsonData.amount ?? 0,
+        currency: jsonData.currency ?? "SEK",
+        data_json: jsonData.dataJson ?? {},
         created_at: new Date().toISOString()
       })
       .select()
@@ -47,10 +48,14 @@ export async function POST(req: Request) {
       return bad(`Failed to create document: ${error.message}`);
     }
 
+    // Generera PDF-URL (placeholder för nu)
+    const pdfUrl = `/api/documents/${documentId}/pdf`;
+
     return NextResponse.json({
       ok: true,
       document: data,
-      message: "Offert sparad framgångsrikt"
+      pdfUrl: pdfUrl,
+      message: "Dokument sparad framgångsrikt"
     });
 
   } catch (error) {
