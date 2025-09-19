@@ -76,9 +76,10 @@ async function idbDel(key: string) {
    Komponent
    ============================ */
 export default function KundDetaljsida() {
-  const { id } = useParams<{ id: string }>();
+  const params = useParams();
+  const routeCustomerId = params?.id as string;
   const router = useRouter();
-  const idNumber = parseInt(id as string);
+  const idNumber = parseInt(routeCustomerId);
 
   const [data, setData] = useState({
     companyName: "",
@@ -139,10 +140,10 @@ export default function KundDetaljsida() {
 
   // Ladda dokument när sidan laddas
   useEffect(() => {
-    if (id) {
+    if (routeCustomerId) {
       loadDocuments();
     }
-  }, [id]);
+  }, [routeCustomerId]);
 
   useEffect(() => {
     // Först försök hämta från den nya strukturen (paperflow_customers_v1)
@@ -288,10 +289,19 @@ export default function KundDetaljsida() {
     return text.replace(/[\u2500-\u257F]/g, "");
   }
 
+  // 🔗 Generera säker kundkortslänk (aldrig låt GPT styra detta)
+  function getCustomerCardUrl(): string {
+    const baseUrl = typeof window !== 'undefined'
+      ? window.location.origin
+      : (process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000');
+    
+    return `${baseUrl}/kund/${routeCustomerId}`;
+  }
+
   // 🤖 Hantera GPT-offertsvar automatiskt
   async function handleGptResponse(gptReply: string) {
     try {
-      // 1. Hitta JSON-delen i GPT-svaret med regex
+      // 1. Hitta JSON-delen i GPT-svaret med robust regex (första giltiga { ... })
       const jsonMatch = gptReply.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         console.warn("Ingen JSON hittad i GPT-svar");
@@ -300,48 +310,61 @@ export default function KundDetaljsida() {
 
       // 2. Parsa JSON
       const jsonData = JSON.parse(jsonMatch[0]);
-      const kund = jsonData.kund || {};
+      
+      // 3. Tvinga customerId från route (inte från GPT)
+      jsonData.customerId = routeCustomerId;
 
-      // 3. Uppdatera kundkortets state med alla fält
+      // 4. Mappa ALLA kundfält från parsed.dataJson.kund till state
+      const kundData = jsonData.dataJson?.kund || {};
+      const foretagData = jsonData.dataJson?.foretag || {};
+      
       const updatedData = {
         ...data,
-        companyName: kund.namn || data.companyName,
-        customerNumber: jsonData.offertnummer || data.customerNumber,
-        contactPerson: kund.kontaktperson || data.contactPerson,
-        email: kund.epost || data.email,
-        phone: kund.telefon || data.phone,
-        address: kund.adress || data.address,
-        zip: kund.postnummer || data.zip,
-        city: kund.ort || data.city,
-        orgNr: kund.orgnr || data.orgNr,
-        contactDate: jsonData.datum || data.contactDate,
-        role: kund.befattning || data.role,
-        country: kund.land || data.country,
-        // Offertdata
-        offerText: jsonData.titel || data.offerText,
-        totalSum: jsonData.summa || data.totalSum
+        // Grundläggande kunduppgifter
+        companyName: kundData.namn || foretagData.namn || data.companyName,
+        contactPerson: kundData.kontaktperson || data.contactPerson,
+        phone: kundData.telefon || foretagData.telefon || data.phone,
+        email: kundData.epost || foretagData.epost || data.email,
+        address: kundData.adress || foretagData.adress || data.address,
+        zip: kundData.postnummer || data.zip,
+        city: kundData.ort || data.city,
+        orgNr: kundData.orgnr || foretagData.orgnr || data.orgNr,
+        contactDate: kundData.datum || data.contactDate,
+        // Offertspecifika fält
+        title: jsonData.title || data.title,
+        amount: jsonData.amount || data.amount,
+        currency: jsonData.currency || data.currency,
+        totalSum: jsonData.totalSum || data.totalSum,
+        vatPercent: jsonData.vatPercent || data.vatPercent,
+        vatAmount: jsonData.vatAmount || data.vatAmount,
+        validityDays: jsonData.validityDays || data.validityDays,
+        // Ytterligare fält från kunddata
+        customerNumber: kundData.offertnummer || data.customerNumber,
+        position: kundData.befattning || data.position,
+        country: kundData.land || data.country || "Sverige"
       };
 
       persistData(updatedData);
 
-      // 4. Plocka ut textdelen (allt efter JSON)
+      // 5. Plocka ut textdelen (allt efter JSON)
       const textStart = gptReply.indexOf(jsonMatch[0]) + jsonMatch[0].length;
       const rawTextData = gptReply.substring(textStart).trim();
       
-      // 5. Rensa textdelen från box-drawing-tecken
+      // 6. Rensa textdelen från box-drawing-tecken
       const cleanTextData = cleanOfferText(rawTextData);
       
-      // 6. Spara textdelen i state för förhandsvisning
+      // 7. Spara textdelen i state för förhandsvisning (aldrig JSON i UI)
       setGptOfferPreview(cleanTextData);
 
-      // 7. Spara i Supabase documents-tabellen med rensad text
+      // 8. Spara i Supabase documents-tabellen
       const response = await fetch('/api/documents/create-from-gpt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customerId: id as string,
+          customerId: routeCustomerId, // Tvinga route ID
           jsonData: jsonData,
-          textData: cleanTextData
+          textData: cleanTextData,
+          documentType: jsonData.documentType || 'offert'
         })
       });
 
@@ -439,7 +462,7 @@ Signatur:
   async function loadDocuments() {
     setLoadingDocuments(true);
     try {
-      const response = await fetch(`/api/documents/list?customerId=${id}`);
+      const response = await fetch(`/api/documents/list?customerId=${routeCustomerId}`);
       if (response.ok) {
         const data = await response.json();
         setDocuments(data.documents || []);
@@ -468,7 +491,7 @@ Signatur:
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customerId: id
+          customerId: routeCustomerId
         })
       });
 
@@ -493,7 +516,7 @@ Signatur:
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customerId: id
+          customerId: routeCustomerId
         })
       });
 
@@ -518,7 +541,7 @@ Signatur:
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customerId: id
+          customerId: routeCustomerId
         })
       });
 
@@ -800,7 +823,7 @@ Signatur:
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               pdfBase64: base64,
-              customerId: id as string
+              customerId: routeCustomerId
             })
           });
 
@@ -968,14 +991,14 @@ Signatur:
 
       {/* Kunduppgifter – visas högt upp, mobilvänligt */}
       <section className="mt-3 mb-4">
-        <CustomerCardInfo customerId={id as string} />
+        <CustomerCardInfo customerId={routeCustomerId} />
       </section>
 
       {/* Dokumentöversikt – liknande bokföringsprogram */}
       <section id="dokument" className="mt-3 mb-6">
         <h2 className="text-lg font-semibold mb-2 text-gray-800">Dokumentöversikt</h2>
         <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-          <DocumentOverview customerId={id as string} />
+          <DocumentOverview customerId={routeCustomerId} />
         </div>
       </section>
 
@@ -991,7 +1014,7 @@ Signatur:
         </h2>
         <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
           <OfferList 
-            customerId={id as string} 
+            customerId={routeCustomerId} 
             customerEmail={data.email} 
             onEmailUpdate={(email) => {
               const updated = { ...data, email };
@@ -1161,7 +1184,7 @@ Signatur:
       )}
 
       {/* Offerter */}
-      <OfferRealtime customerId={String(id)} />
+      <OfferRealtime customerId={routeCustomerId} />
 
       <h2 className="text-xl font-bold mt-8">📷 Bilder och kladdlappar</h2>
       <input type="file" accept="image/*" multiple onChange={handleImageUpload} className="mt-2 mb-4 text-blue-700 font-semibold cursor-pointer" />
@@ -1348,6 +1371,14 @@ Signatur:
                 >
                   🖨️ Skriv ut
                 </button>
+                <a 
+                  href={getCustomerCardUrl()}
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                >
+                  ➡️ Öppna kundkortet
+                </a>
               </div>
             )}
           </div>
