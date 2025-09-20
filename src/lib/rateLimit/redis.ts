@@ -1,4 +1,4 @@
-// Rate limiting with Redis (Upstash) or in-memory fallback
+// Simple rate limiting with optional Redis support
 
 interface RateLimitResult {
   success: boolean
@@ -8,7 +8,7 @@ interface RateLimitResult {
   retryAfter?: number
 }
 
-// Simple in-memory fallback if Redis not available
+// In-memory store as fallback
 let memoryStore: Map<string, { count: number; reset: number }> | null = null;
 
 export async function checkLimit(
@@ -16,70 +16,9 @@ export async function checkLimit(
   limit: number = 30,
   windowMs: number = 60000
 ): Promise<RateLimitResult> {
-  // Try Redis first if configured
-  const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
-  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-  
-  if (redisUrl && redisToken) {
-    try {
-      return await checkLimitRedis(identifier, limit, windowMs, redisUrl, redisToken);
-    } catch (error) {
-      console.warn('Redis rate limiting failed, falling back to memory:', error);
-      // Fall through to memory implementation
-    }
-  }
-  
-  // Memory fallback
+  // For now, use simple in-memory implementation
+  // Redis can be added later if needed
   return checkLimitMemory(identifier, limit, windowMs);
-}
-
-async function checkLimitRedis(
-  identifier: string,
-  limit: number,
-  windowMs: number,
-  url: string,
-  token: string
-): Promise<RateLimitResult> {
-  const window = Math.floor(Date.now() / windowMs);
-  const key = `rate_limit:${identifier}:${window}`;
-  
-  // Use Upstash REST API
-  const response = await fetch(`${url}/incr/${key}`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    }
-  });
-  
-  if (!response.ok) {
-    throw new Error(`Redis API error: ${response.status}`);
-  }
-  
-  const data = await response.json();
-  const current = data.result;
-  
-  // Set expiry for new key
-  if (current === 1) {
-    await fetch(`${url}/expire/${key}/${Math.ceil(windowMs / 1000)}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-  }
-  
-  const remaining = Math.max(0, limit - current);
-  const reset = new Date((window + 1) * windowMs);
-  
-  return {
-    success: current <= limit,
-    limit,
-    remaining,
-    reset,
-    retryAfter: current > limit ? Math.ceil(windowMs / 1000) : undefined
-  };
 }
 
 function checkLimitMemory(

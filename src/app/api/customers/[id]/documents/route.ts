@@ -7,8 +7,9 @@ function bad(msg: string, code = 400) {
 
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
+  const params = await context.params;
   try {
     const customerId = params.id;
     if (!customerId) return bad("Missing customer ID");

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import FotaKvitto from "@/components/FotaKvitto";
-import CaptureReceipt from "@/components/CaptureReceipt";
 import Link from "next/link";
 
 type ReceiptData = {
@@ -15,24 +14,10 @@ type ReceiptData = {
 
 export default function KvittonPage() {
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
-  const [useAdvancedCamera, setUseAdvancedCamera] = useState(false);
 
   const handleReceiptData = (data: ReceiptData) => {
     setReceiptData(data);
     console.log("Kvitto-data mottagen:", data);
-  };
-
-  const handleAdvancedReceiptData = (result: any) => {
-    if (result.ok && result.data) {
-      const converted: ReceiptData = {
-        merchant: result.data.merchant || "",
-        date: result.data.date || "",
-        total: result.data.total_amount || "",
-        vat: result.data.vat_amount || "",
-        currency: result.data.currency || "SEK"
-      };
-      handleReceiptData(converted);
-    }
   };
 
   return (
@@ -49,48 +34,13 @@ export default function KvittonPage() {
 
         <h1 className="text-3xl font-bold mb-6 text-center">📷 Kvitto-OCR Test</h1>
         
-        {/* Komponent-väljare */}
-        <div className="bg-white rounded-lg shadow p-4 mb-6">
-          <h2 className="text-lg font-semibold mb-3">Välj kamera-komponent:</h2>
-          <div className="flex gap-4">
-            <button
-              onClick={() => setUseAdvancedCamera(false)}
-              className={`px-4 py-2 rounded ${!useAdvancedCamera 
-                ? 'bg-blue-600 text-white' 
-                : 'bg-gray-200 text-gray-700'}`}
-            >
-              Enkel FotaKvitto
-            </button>
-            <button
-              onClick={() => setUseAdvancedCamera(true)}
-              className={`px-4 py-2 rounded ${useAdvancedCamera 
-                ? 'bg-blue-600 text-white' 
-                : 'bg-gray-200 text-gray-700'}`}
-            >
-              Avancerad CaptureReceipt
-            </button>
-          </div>
-        </div>
-
-        {/* Kvitto-komponenter */}
+        {/* Kvitto-komponent */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
-          {useAdvancedCamera ? (
-            <div>
-              <h3 className="text-lg font-semibold mb-4">Avancerad kamera med kvalitetsfeedback</h3>
-              <CaptureReceipt 
-                onResult={handleAdvancedReceiptData}
-                className="max-w-md mx-auto"
-              />
-            </div>
-          ) : (
-            <div>
-              <h3 className="text-lg font-semibold mb-4">Enkel kvitto-fotning</h3>
-              <FotaKvitto 
-                onData={handleReceiptData}
-                className="max-w-md mx-auto"
-              />
-            </div>
-          )}
+          <h2 className="text-lg font-semibold mb-4">Fota eller ladda upp kvitto</h2>
+          <FotaKvitto 
+            onData={handleReceiptData}
+            className="max-w-md mx-auto"
+          />
         </div>
 
         {/* Resultat */}
@@ -179,10 +129,10 @@ export default function KvittonPage() {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-6">
           <h4 className="font-semibold text-blue-900 mb-2">💡 Test-instruktioner:</h4>
           <ul className="text-sm text-blue-800 space-y-1">
-            <li>• <strong>Enkel komponent</strong>: Grundläggande filuppladdning med OCR</li>
-            <li>• <strong>Avancerad komponent</strong>: Live kamera med kvalitetsfeedback</li>
             <li>• Testa med olika kvitton (ICA, Coop, Hemköp, etc.)</li>
             <li>• Kontrollera att datum, belopp och moms extraheras korrekt</li>
+            <li>• Prova både kamera-fotning och filuppladdning</li>
+            <li>• Verifiera felhantering med dåliga bilder</li>
           </ul>
         </div>
       </div>

@@ -614,4 +614,9 @@ def extract_image():
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    
+    print(f"Starting OCR service on port {port}")
+    print(f"Debug mode: {debug}")
+    print(f"API key required: {REQUIRE_API_KEY}")
+    
     app.run(host="0.0.0.0", port=port, debug=debug)
