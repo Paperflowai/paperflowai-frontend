@@ -51,15 +51,27 @@ export default function OcrTestPage() {
     setResult(null);
 
     try {
-      const r = await fetch("/api/ocr", { method: "POST", body: fd });
-      const text = await r.text();
-      let data: any = null;
-      try { data = text ? JSON.parse(text) : null; } catch { /* not json */ }
-      if (!r.ok) {
-        const msg = data?.backend?.message || data?.detail || data?.error || text || "OCR-fel";
+      const r = await fetch("/api/v1/receipt-ocr", { method: "POST", body: fd });
+      const json = await r.json();
+      
+      if (!r.ok || !json.ok) {
+        const msg = json?.message || json?.error || "OCR-fel";
         throw new Error(msg);
       }
-      setResult(data ?? { raw: text });
+      
+      // Konvertera från nya API-formatet för kompatibilitet
+      const convertedResult = {
+        company: json.data?.merchant || "",
+        total: json.data?.total_amount || "",
+        vat: json.data?.vat_amount || "",
+        date: json.data?.date || "",
+        currency: json.data?.currency || "",
+        raw_text: json.raw_text || json.preview_text || "",
+        method: json.method || "ocr",
+        metrics: json.metrics || {}
+      };
+      
+      setResult(convertedResult);
     } catch (e: any) {
       setErr(e?.message || String(e));
     } finally {
