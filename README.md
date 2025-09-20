@@ -1,39 +1,64 @@
-# Offertplattform – lokal körning och OCR
+# PaperflowAI 🤖📄
 
-## Lokalt
+Enterprise-grade SaaS platform for small business automation with AI-powered document processing and OCR.
 
-1. Installera JS-beroenden
+## 🏗️ Architecture (Consolidated)
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Frontend      │    │   OCR Service   │    │   Database      │
+│   (Next.js)     │────│   (Flask)       │────│   (Supabase)    │
+│   Vercel        │    │   Render        │    │   PostgreSQL    │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+    ┌────▼────┐             ┌────▼────┐             ┌────▼────┐
+    │ 2 APIs  │             │ Unified │             │ Auth    │
+    │ v1/pdf  │             │ Service │             │ RLS     │
+    │ v1/rcpt │             │ OpenCV  │             │ Storage │
+    │ Rate    │             │ Tesseract│             │ Realtime│
+    │ Limit   │             │ Metrics │             │ Backups │
+    └─────────┘             └─────────┘             └─────────┘
+```
+
+## 🚀 Quick Start
+
+### Local Development
 ```bash
+# 1. Frontend
+git clone <repository>
+cd offertplattform
 npm install
-```
-2. Starta Next.js (http://localhost:3000)
-```bash
-npm run dev
-```
-3. Starta Python OCR-backend i en annan terminal
-```bash
-cd ocr_server
-python -m venv .venv && .venv\Scripts\activate
-pip install --upgrade pip
+npm run dev  # → http://localhost:3000
+
+# 2. OCR Service (new terminal)
+cd pdf-ocr-service
 pip install -r requirements.txt
-python app.py
+python app.py  # → http://localhost:8000
 ```
-4. Testa
-- Öppna `http://localhost:3000/ocr-test`
-- Välj en bild (kvitto). Frontend POST:ar till `/api/ocr` → proxar till `http://127.0.0.1:5000/ocr` (fallback)
 
-## Produktion
+### Test Integration
+```bash
+# PDF extraction
+curl -X POST http://localhost:3000/api/v1/pdf-extract \
+  -F "file=@document.pdf"
 
-- Frontend: Vercel (Next 15, app router)
-- Backend: Render Web Service (root: `ocr_server`)
+# Receipt OCR
+curl -X POST http://localhost:3000/api/v1/receipt-ocr \
+  -F "file=@receipt.jpg"
+```
 
-Render:
-- Build command: `pip install -r requirements.txt`
-- Start command: `gunicorn -w 1 -k gthread -b 0.0.0.0:$PORT app:app`
-- Hälsa: `GET /health` → `{ "ok": true }`
+## 🔧 Production Deployment
 
-Vercel env:
-- `PYTHON_OCR_URL = https://<render-service>.onrender.com/ocr`
+### Vercel (Frontend)
+- **Auto-deploy**: Pushes to main branch
+- **Environment**: See `.env.example`
+- **Health**: https://your-app.vercel.app/api/v1/pdf-extract
+
+### Render (OCR Service)
+- **Root Directory**: `pdf-ocr-service`
+- **Build**: `pip install -r requirements.txt`
+- **Start**: `gunicorn --bind 0.0.0.0:$PORT app:app`
+- **Health**: https://your-ocr.onrender.com/health
 
 ## cURL
 

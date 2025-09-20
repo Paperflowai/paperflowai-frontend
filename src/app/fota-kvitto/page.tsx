@@ -79,18 +79,32 @@ Vill du ändå lägga till det?`);
       const formData = new FormData();
       formData.append("file", processedFile, processedFile.name);
 
-      const response = await fetch("/api/ocr", {
+      const response = await fetch("/api/v1/receipt-ocr", {
         method: "POST",
         body: formData,
       });
 
       const result = await response.json();
-      setOcrResult(result);
-
-      // Kontrollera dubletter om OCR lyckades
-      if (result && !result.error && result.company && result.total) {
-        const today = new Date().toISOString().slice(0, 10);
-        checkForDuplicates(result.company, parseFloat(result.total), today);
+      
+      // Konvertera från nya API-formatet till befintligt format
+      if (result.ok && result.data) {
+        const convertedResult = {
+          company: result.data.merchant || "",
+          total: result.data.total_amount || "",
+          vat: result.data.vat_amount || "",
+          date: result.data.date || "",
+          raw_text: result.raw_text || ""
+        };
+        setOcrResult(convertedResult);
+        
+        // Kontrollera dubletter
+        if (convertedResult.company && convertedResult.total) {
+          const today = new Date().toISOString().slice(0, 10);
+          checkForDuplicates(convertedResult.company, parseFloat(convertedResult.total), today);
+        }
+      } else {
+        // Hantera fel från nya API:et
+        setOcrResult({ error: result.message || "Kunde inte läsa kvittot. Försök igen." });
       }
     } catch (error) {
       console.error("OCR error:", error);

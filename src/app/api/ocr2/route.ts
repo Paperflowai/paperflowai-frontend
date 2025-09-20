@@ -1,16 +1,29 @@
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import { NextRequest } from 'next/server';
 
-const BASE = "http://127.0.0.1:5000";
+// DEPRECATED: EasyOCR proxy - consolidated into /api/v1/receipt-ocr
+
+export async function POST(req: NextRequest) {
+  console.warn(JSON.stringify({
+    event: 'deprecated_endpoint_used',
+    endpoint: '/api/ocr2',
+    new_endpoint: '/api/v1/receipt-ocr',
+    ip: req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown'
+  }));
+
+  const url = new URL(req.url);
+  url.pathname = '/api/v1/receipt-ocr';
+  
+  return Response.redirect(url.toString(), 307);
+}
+
 export async function GET() {
-  try {
-    const res = await fetch(`${BASE}/health`, { cache: "no-store" });
-    const body = await res.text();
-    return new Response(body, {
-      status: res.status,
-      headers: { "content-type": res.headers.get("content-type") || "application/json" },
-    });
-  } catch (e: any) {
-    return Response.json({ ok: false, error: String(e) }, { status: 500 });
-  }
+  return Response.json({
+    deprecated: true,
+    message: "EasyOCR endpoint consolidated into /api/v1/receipt-ocr",
+    redirect_to: "/api/v1/receipt-ocr"
+  }, { 
+    status: 301,
+    headers: { 'Location': '/api/v1/receipt-ocr', 'X-Deprecated': 'true' }
+  });
 }

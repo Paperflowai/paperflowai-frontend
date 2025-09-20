@@ -1,105 +1,42 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from 'next/server';
 
-export const runtime = "nodejs";
+// DEPRECATED: This endpoint has been consolidated into /api/v1/receipt-ocr
+// Redirect to new optimized receipt OCR endpoint
 
 export async function POST(req: NextRequest) {
-  try {
-    const formData = await req.formData();
-    const file = formData.get('file') as File;
-    
-    if (!file) {
-      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+  // Log deprecation warning
+  console.warn(JSON.stringify({
+    event: 'deprecated_endpoint_used',
+    endpoint: '/api/ocr',
+    new_endpoint: '/api/v1/receipt-ocr',
+    ip: req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown',
+    migration_reason: 'Consolidated OCR architecture for better performance'
+  }));
+
+  const url = new URL(req.url);
+  url.pathname = '/api/v1/receipt-ocr';
+  
+  return Response.redirect(url.toString(), 307); // Temporary redirect preserving method
+}
+
+export async function GET() {
+  return Response.json({
+    deprecated: true,
+    message: "This endpoint has been moved to /api/v1/receipt-ocr",
+    redirect_to: "/api/v1/receipt-ocr",
+    migration_benefits: [
+      "Faster processing (2-6s vs 10-30s)",
+      "Lower cost (free Tesseract vs paid OpenAI)",
+      "Better mobile photo handling with OpenCV preprocessing",
+      "Structured error messages with actionable tips"
+    ],
+    documentation: "/api/docs"
+  }, { 
+    status: 301,
+    headers: {
+      'Location': '/api/v1/receipt-ocr',
+      'X-Deprecated': 'true',
+      'X-Sunset': '2024-06-01' // Planned removal date
     }
-
-    // Konvertera fil till base64
-    const arrayBuffer = await file.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString('base64');
-
-    // Kontrollera om OpenAI API key finns
-    const apiKey = process.env.OPENAI_API_KEY;
-    
-    if (!apiKey) {
-      // Fallback till mock-svar om ingen API key
-      return NextResponse.json({ 
-        text: 'Mock OCR: Faktura från ICA, 1 250 kr, 25% moms, 2024-01-15, Kvittonr: 12345',
-        mock: true,
-        confidence: 0.95
-      });
-    }
-
-    // 1. Först kontrollera bildkvalitet
-    const qualityResponse = await fetch(`${req.nextUrl.origin}/api/image-quality`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: base64 })
-    });
-
-    if (qualityResponse.ok) {
-      const qualityData = await qualityResponse.json();
-      if (!qualityData.passed) {
-        return NextResponse.json({ 
-          error: `Bildkvalitet otillräcklig: ${qualityData.issues.join(', ')}`,
-          quality_issues: qualityData.issues,
-          suggestions: qualityData.suggestions
-        }, { status: 400 });
-      }
-    }
-
-    // 2. Om kvaliteten är OK, kör OCR med OpenAI
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4-vision-preview',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `Extrahera all text från denna bild. Fokusera på:
-                - Företagsnamn/leverantör
-                - Datum
-                - Belopp (inklusive moms)
-                - Kvittonummer/fakturanummer
-                - Adresser och kontaktuppgifter
-                
-                Svara med all text du kan läsa, en rad per rad.`
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:image/jpeg;base64,${base64}`
-                }
-              }
-            ]
-          }
-        ],
-        max_tokens: 1000
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const text = data.choices?.[0]?.message?.content || '';
-    
-    return NextResponse.json({ 
-      text,
-      confidence: 0.9 // OpenAI Vision har hög confidence
-    });
-    
-  } catch (error) {
-    console.error('OCR error:', error);
-    return NextResponse.json({ 
-      error: 'OCR failed',
-      text: 'Kunde inte läsa text från bilden',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 });
-  }
+  });
 }
