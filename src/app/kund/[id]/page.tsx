@@ -86,6 +86,7 @@ export default function KundDetaljsida() {
     orgNr: "",
     contactPerson: "",
     role: "",
+    position: "",
     phone: "",
     email: "",
     address: "",
@@ -96,6 +97,9 @@ export default function KundDetaljsida() {
     notes: "",
     customerNumber: "",
     // Nya fält för offertdata
+    title: "",
+    amount: "",
+    currency: "SEK",
     offerText: "",
     totalSum: "",
     vatPercent: "",
@@ -157,6 +161,7 @@ export default function KundDetaljsida() {
         orgNr: customer.orgNr || "",
         contactPerson: customer.contactPerson || "",
         role: customer.role || "",
+        position: customer.position || "",
         phone: customer.phone || "",
         email: customer.email || "",
         address: customer.address || "",
@@ -167,6 +172,9 @@ export default function KundDetaljsida() {
         notes: customer.notes || "",
         customerNumber: customer.customerNumber || "",
         // Nya fält för offertdata
+        title: customer.title || "",
+        amount: customer.amount || "",
+        currency: customer.currency || "SEK",
         offerText: customer.offerText || "",
         totalSum: customer.totalSum || "",
         vatPercent: customer.vatPercent || "",
@@ -193,6 +201,9 @@ export default function KundDetaljsida() {
           ...data, 
           customerNumber: nyttKundnummer,
           // Lägg till de nya fälten med tomma värden
+          title: "",
+          amount: "",
+          currency: "SEK",
           offerText: "",
           totalSum: "",
           vatPercent: "",
@@ -592,160 +603,7 @@ Signatur:
     });
   }
 
-  // === Ladda PDF.js (via CDN) exakt en gång ===
-  async function loadPdfJsOnce(): Promise<any> {
-    if (window.pdfjsLib) return window.pdfjsLib;
-
-    await new Promise<void>((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-      script.async = true;
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error("Kunde inte ladda PDF.js"));
-      document.head.appendChild(script);
-    });
-
-    const pdfjsLib = window.pdfjsLib!;
-    try {
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-    } catch {}
-    return pdfjsLib;
-  }
-
-  // === Läs ut text från PDF (alla sidor) ===
-  async function extractTextFromPDF(file: File): Promise<string> {
-    try {
-      const pdfjsLib = await loadPdfJsOnce();
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      let fullText = "";
-
-      for (let p = 1; p <= pdf.numPages; p++) {
-        const page = await pdf.getPage(p);
-        const content = await page.getTextContent();
-        const strings = content.items.map((it: any) => it.str);
-        fullText += strings.join("\n") + "\n";
-      }
-      return fullText;
-    } catch (err) {
-      console.warn("PDF-textutvinning misslyckades:", err);
-      return "";
-    }
-  }
-
-  // Hjälpare för parser
-  function normalize(s: string) {
-    return s
-      .replace(/\u2011|\u2013|\u2014/g, "-")
-      .replace(/\u00A0/g, " ")
-      .replace(/[^\S\r\n]+/g, " ");
-  }
-  function formatZip(zip: string) {
-    const only = (zip || "").replace(/\D/g, "");
-    if (only.length === 5) return `${only.slice(0, 3)} ${only.slice(3)}`;
-    return (zip || "").trim();
-  }
-
-  // === Parser (säker, null-guarded) ===
-  function parseFieldsFromText(txt: string, filename?: string) {
-    try {
-      const norm = normalize(txt || "");
-      const safeGet = (regex: RegExp) => {
-        const m = norm.match(regex);
-        return (m && m[1] ? String(m[1]).trim() : "");
-      };
-
-      const kund = safeGet(/(?:Kund|Beställare|Företag|Kundnamn)\s*:?\s*(.+)/i);
-      const datum = safeGet(/(?:Datum|Offertdatum)\s*:?\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{2}[-/.][0-9]{2}[-/.][0-9]{2,4})/i);
-      let offertnr = safeGet(/(?:Offert(?:nummer|\s*nr\.?)?|Offert-Nr\.?)\s*:?\s*([A-Za-z0-9\-_/]+)/i);
-
-      const orgnr =
-        safeGet(/(?:Org(?:\.|\s)?(?:nr|nummer)|Organisations(?:nummer|nr))\s*:?\s*([0-9\- ]{6,})/i) ||
-        safeGet(/(?:VAT|Momsregnr|VAT(?:\s*nr)?)\s*:?\s*([A-Za-z0-9\- ]{6,})/i);
-
-      let adress =
-        safeGet(/(?:Adress|Gatuadress|Besöksadress)\s*:?\s*(.+)/i) ||
-        safeGet(/(?:Postadress)\s*:?\s*(.+)/i);
-
-      const postrad = (() => {
-        const a = norm.match(/(?:Postnr(?:\.|)|Postnummer|Postadress)\s*:?\s*([0-9]{3}\s?[0-9]{2}\s+[^\n]+)/i);
-        if (a && a[1]) return a[1];
-        const b = norm.match(/([0-9]{3}\s?[0-9]{2})\s+([A-Za-zÅÄÖåäö\- ]{2,})/);
-        if (b && b[0]) return b[0];
-        return "";
-      })();
-
-      const telefon = safeGet(/(?:Telefon|Tel\.?|Tel)\s*:?\s*([\d +\-()]{5,})/i);
-      const email = safeGet(/(?:E-?post|E ?post|E-mail|Mail)\s*:?\s*([^\s,;<>]+@[^\s,;<>]+)/i);
-      const kontaktperson = safeGet(/(?:Kontaktperson|Kontakt)\s*:?\s*([^\n]+)/i);
-      const land = safeGet(/(?:Land|Country)\s*:?\s*([^\n]+)/i);
-
-      let street = adress || "";
-      let zip = "";
-      let city = "";
-
-      if (adress) {
-        const parts = adress.split(",").map((s) => s.trim()).filter(Boolean);
-        if (parts.length >= 2) {
-          street = parts[0];
-          const tail = parts.slice(1).join(", ");
-          const m = tail.match(/(\d{3}\s?\d{2})\s+(.+)/);
-          if (m && m[1] && m[2]) {
-            zip = formatZip(m[1]);
-            city = String(m[2]).trim();
-          } else if (!city) {
-            city = tail;
-          }
-        }
-      }
-
-      if ((!zip || !city) && postrad) {
-        const m2 = postrad.match(/(\d{3}\s?\d{2})\s+(.+)/);
-        if (m2 && m2[1] && m2[2]) {
-          zip = formatZip(m2[1]);
-          city = String(m2[2]).trim();
-        }
-      }
-
-      let companyGuess = kund || "";
-      if (!companyGuess) {
-        const firstLines = norm.split("\n").slice(0, 12).map(s => s.trim()).filter(Boolean);
-        const stopIdx = firstLines.findIndex(l => /offert|order|faktura/i.test(l));
-        const scope = stopIdx > 0 ? firstLines.slice(0, stopIdx) : firstLines;
-        const cand = scope.find(l =>
-          /[A-Za-zÅÄÖåäö]/.test(l) && l.split(" ").length >= 2 && l.length <= 60
-        );
-        if (cand) companyGuess = cand.replace(/^(AB|HB|KB)\s+/i, "").trim();
-      }
-
-      if (!offertnr && filename) {
-        const m = filename.match(/(offert|offer|off)\s*[-_ ]?\s*([A-Za-z0-9\-_/]+)/i);
-        if (m && m[2]) offertnr = m[2];
-      }
-
-      const mapped = {
-        companyName: companyGuess || "",
-        orgNr: orgnr || "",
-        contactPerson: kontaktperson || "",
-        phone: telefon || "",
-        email: email || "",
-        address: street || "",
-        zip: zip ? formatZip(zip) : "",
-        city: city || "",
-        country: land || "Sverige",
-        contactDate: datum || "",
-        customerNumber: offertnr || "",
-      } as Partial<typeof data>;
-
-      return Object.fromEntries(
-        Object.entries(mapped).map(([k, v]) => [k, (data as any)[k] || v])
-      ) as Partial<typeof data>;
-    } catch (e) {
-      console.warn("parseFieldsFromText fel:", e);
-      return {};
-    }
-  }
+  // PDF-textutvinning och parser borttagen: ingen autofyll från PDF längre
 
   // === Nollställ kundkortet (när offerten raderas) ===
   function resetCustomerCard() {
@@ -755,6 +613,7 @@ Signatur:
       orgNr: "",
       contactPerson: "",
       role: "",
+      position: "",
       phone: "",
       email: "",
       address: "",
@@ -765,6 +624,9 @@ Signatur:
       notes: "",
       customerNumber: nyttKundnummer,
       // Nya fält för offertdata
+      title: "",
+      amount: "",
+      currency: "SEK",
       offerText: "",
       totalSum: "",
       vatPercent: "",
@@ -810,68 +672,9 @@ Signatur:
       if (type === "order") setOrder(newFile);
       if (type === "invoice") setInvoice(newFile);
 
-      // 5) Autofyll vid offert och spara i Supabase
+      // 5) Tidigare: autofyll via OCR/PDF-textutvinning. Nu borttagen.
       if (type === "offert") {
-        try {
-          // Konvertera PDF till base64
-          const arrayBuffer = await uploaded.arrayBuffer();
-          const base64 = Buffer.from(arrayBuffer).toString('base64');
-          
-          // Skicka till API för att extrahera text och spara i Supabase
-          const response = await fetch('/api/pdf-extract-and-parse', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              pdfBase64: base64,
-              customerId: routeCustomerId
-            })
-          });
-
-          if (response.ok) {
-            const result = await response.json();
-            const parsedData = result.parsedData;
-            
-            // Fyll i kundkortets fält automatiskt
-            const mapped = {
-              companyName: parsedData.customerName || "",
-              orgNr: parsedData.orgNr || "",
-              address: parsedData.address || "",
-              email: parsedData.email || "",
-              phone: parsedData.phone || "",
-              // Lägg till offertdata
-              offerText: result.offer?.data_json?.extractedText || "",
-              totalSum: parsedData.amount || 0,
-              currency: parsedData.currency || "SEK"
-            };
-            
-            const updated = { ...data, ...mapped };
-            persistData(updated);
-            console.log("Autofyllda fält och sparad i Supabase:", mapped);
-            
-            // Visa bekräftelse
-            alert(`Offert extraherad och sparad i Supabase!\nKund: ${parsedData.customerName}\nBelopp: ${parsedData.amount} ${parsedData.currency}`);
-          } else {
-            console.error("API error:", await response.text());
-            // Fallback till befintlig logik
-            const text = await extractTextFromPDF(uploaded);
-            if (text && text.trim().length > 0) {
-              const mapped = parseFieldsFromText(text, uploaded.name);
-              const updated = { ...data, ...mapped };
-              persistData(updated);
-              console.log("Autofyllda fält (fallback):", mapped);
-            }
-          }
-        } catch (error) {
-          console.error("Error processing PDF:", error);
-          // Fallback till befintlig logik
-          const text = await extractTextFromPDF(uploaded);
-          if (text && text.trim().length > 0) {
-            const mapped = parseFieldsFromText(text, uploaded.name);
-            const updated = { ...data, ...mapped };
-            persistData(updated);
-            console.log("Autofyllda fält (fallback):", mapped);
-          }
-        }
+        // TODO: Här fanns OCR/PDF-parsing. Lägg ev. ny GPT-baserad lösning senare.
       }
     } finally {
       // ✅ säkert att nollställa efter async
