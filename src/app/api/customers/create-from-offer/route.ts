@@ -1,155 +1,108 @@
 import { NextResponse } from "next/server";
-
-type CreateCustomerFromOfferBody = {
-  offerData: {
-    offerId: string;
-    customerName?: string;
-    amount?: number;
-    currency?: string;
-    items?: any[];
-    date?: string;
-    validUntil?: string;
-  };
-  customerData?: {
-    companyName?: string;
-    orgNr?: string;
-    contactPerson?: string;
-    role?: string;
-    phone?: string;
-    email?: string;
-    address?: string;
-    zip?: string;
-    city?: string;
-    country?: string;
-    notes?: string;
-  };
-};
+import { supabaseAdmin } from "@/lib/supabaseServer";
 
 function bad(msg: string, code = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status: code });
 }
 
+interface Customer {
+  id: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  orgnr?: string;
+  address?: string;
+  zip?: string;
+  city?: string;
+  country?: string;
+  [key: string]: any; // tillåt extra fält om de finns i databasen
+}
+
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as CreateCustomerFromOfferBody;
-    
-    if (!body?.offerData?.offerId) {
-      return bad("Missing offerId");
+    const body = await req.json();
+    const { offer } = body;
+
+    if (!offer) return bad("Missing offer data");
+
+    const { email, name } = offer;
+    if (!email) return bad("Missing customer email in offer");
+
+    // Hämta kunder som matchar e-post
+    const { data: customers, error: customersError } = await supabaseAdmin
+      .from("customers")
+      .select("*")
+      .eq("email", email);
+
+    if (customersError) {
+      return bad(`Failed to fetch customers: ${customersError.message}`, 500);
     }
 
-    const customerName = body.customerData?.companyName || body.offerData.customerName || "";
-    const customerEmail = body.customerData?.email || "";
-    const customerOrgNr = body.customerData?.orgNr || "";
-
-    // Kontrollera om kund redan finns i registret
-    let existingCustomer = null;
-    let customerId = "";
+    let customerId: string | null = null;
     let customerCreated = false;
 
-    // Simulera sökning i kundregister (i riktig app skulle detta vara databas)
-    // Sök efter matchande företagsnamn, e-post eller org.nr
-    if (customerName || customerEmail || customerOrgNr) {
-      // Här skulle vi söka i databasen efter befintlig kund
-      // För nu returnerar vi null för att simulera att ingen kund hittades
-      existingCustomer = null;
-    }
+    // Om kunden redan finns
+    const existingCustomer: Customer | undefined = customers?.find(
+      (c: Customer) => c.email === email
+    );
 
     if (existingCustomer) {
       // Använd befintlig kund
       customerId = existingCustomer.id;
       customerCreated = false;
-      
+
       // Uppdatera befintlig kund med ny offertdata (om något har ändrats)
-      const updatedCustomer = {
-        ...existingCustomer,
-        offers: [...(existingCustomer.offers || []), body.offerData]
-      };
-      
-      const offerData = {
-        customerId: customerId,
-        title: body.offerData.customerName || "Offert",
-        amount: body.offerData.amount || 0,
-        currency: body.offerData.currency || "SEK",
-        dataJson: JSON.stringify({
-          offerId: body.offerData.offerId,
-          items: body.offerData.items || [],
-          date: body.offerData.date,
-          validUntil: body.offerData.validUntil,
-          customerData: body.customerData
+      const { error: updateError } = await supabaseAdmin
+        .from("customers")
+        .update({
+          name: offer.name ?? existingCustomer.name,
+          phone: offer.phone ?? existingCustomer.phone,
+          orgnr: offer.orgnr ?? existingCustomer.orgnr,
+          address: offer.address ?? existingCustomer.address,
+          zip: offer.zip ?? existingCustomer.zip,
+          city: offer.city ?? existingCustomer.city,
+          country: offer.country ?? existingCustomer.country,
         })
-      };
+        .eq("id", existingCustomer.id);
 
-      return NextResponse.json({
-        ok: true,
-        customer: updatedCustomer,
-        offerData: offerData,
-        message: "Offert tillagd till befintlig kund",
-        customerFound: true
-      }, { status: 200 });
-
+      if (updateError) {
+        console.warn("Failed to update customer:", updateError.message);
+      }
     } else {
       // Skapa ny kund
-      customerId = Date.now().toString();
-      const customerNumber = `K-${Math.floor(Math.random() * 9000000) + 1000000}`;
-      const today = new Date().toISOString().split('T')[0];
-      customerCreated = true;
+      const { data: newCustomer, error: insertError } = await supabaseAdmin
+        .from("customers")
+        .insert([
+          {
+            name: offer.name,
+            email: offer.email,
+            phone: offer.phone,
+            orgnr: offer.orgnr,
+            address: offer.address,
+            zip: offer.zip,
+            city: offer.city,
+            country: offer.country,
+          },
+        ])
+        .select()
+        .single();
 
-      const newCustomer = {
-        id: customerId,
-        companyName: customerName,
-        orgNr: customerOrgNr,
-        contactPerson: body.customerData?.contactPerson || "",
-        role: body.customerData?.role || "",
-        phone: body.customerData?.phone || "",
-        email: customerEmail,
-        address: body.customerData?.address || "",
-        zip: body.customerData?.zip || "",
-        city: body.customerData?.city || "",
-        country: body.customerData?.country || "Sverige",
-        contactDate: today,
-        notes: body.customerData?.notes || "",
-        customerNumber: customerNumber,
-        offers: [body.offerData]
-      };
-
-      const offerData = {
-        customerId: customerId,
-        title: body.offerData.customerName || "Offert",
-        amount: body.offerData.amount || 0,
-        currency: body.offerData.currency || "SEK",
-        dataJson: JSON.stringify({
-          offerId: body.offerData.offerId,
-          items: body.offerData.items || [],
-          date: body.offerData.date,
-          validUntil: body.offerData.validUntil,
-          customerData: body.customerData
-        })
-      };
-
-      // Spara kunddata till localStorage
-      try {
-        const saveResponse = await fetch('/api/customers/save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ customer: newCustomer })
-        });
-        
-        if (!saveResponse.ok) {
-          console.warn('Failed to save customer to localStorage');
-        }
-      } catch (error) {
-        console.warn('Error saving customer:', error);
+      if (insertError) {
+        return bad(`Failed to create customer: ${insertError.message}`, 500);
       }
 
-      return NextResponse.json({
-        ok: true,
-        customer: newCustomer,
-        offerData: offerData,
-        message: "Ny kund och offert skapade automatiskt",
-        customerFound: false
-      }, { status: 200 });
+      customerId = newCustomer.id;
+      customerCreated = true;
     }
 
+    return NextResponse.json(
+      {
+        ok: true,
+        customerId,
+        customerCreated,
+      },
+      { status: 200 }
+    );
   } catch (e: any) {
     return bad(e?.message ?? "Unknown error", 500);
   }
