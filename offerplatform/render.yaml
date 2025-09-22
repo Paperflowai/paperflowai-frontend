@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: offer-service
+    env: node
+    rootDir: offer-service
+    buildCommand: npm ci
+    startCommand: node server.js
+    autoDeploy: true
+    envVars:
+      - key: CORS_ORIGIN
+        value: https://din-app.vercel.app,https://*.vercel.app,http://localhost:3000
+
+  - type: web
+    name: parse-service
+    env: python
+    rootDir: parse-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    autoDeploy: true
+    envVars:
+      - key: CORS_ORIGIN
+        value: https://din-app.vercel.app,https://*.vercel.app,http://localhost:3000
+      - key: PPOCR_USE_MP
+        value: "0"
+
+
