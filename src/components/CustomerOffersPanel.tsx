@@ -55,9 +55,13 @@ export default function CustomerOffersPanel({ customerId }: Props) {
 
   const offers = customer.offers ?? [];
 
+  type CreateCustomerResult =
+    | { success: true; message: string; customer: { id: string; customerNumber: string } }
+    | { success: false; message?: string; error?: string };
+
   const handleSendToCustomerCard = async (offer: Offer) => {
     try {
-      const result = await createOrFindCustomer(offer);
+      const result = (await createOrFindCustomer(offer)) as CreateCustomerResult;
       
       if (result.success) {
         alert(`${result.message}\nKund-ID: ${result.customer.id}\nKundnummer: ${result.customer.customerNumber}`);
@@ -67,7 +71,7 @@ export default function CustomerOffersPanel({ customerId }: Props) {
         const parsed = raw ? (JSON.parse(raw) as StoreCustomer[]) : [];
         setCustomers(parsed);
       } else {
-        alert(`Fel: ${result.error || 'Kunde inte skapa/hitta kund'}`);
+        alert(`Fel: ${result.error || result.message || 'Kunde inte skapa/hitta kund'}`);
       }
     } catch (error) {
       alert(`Fel: ${error instanceof Error ? error.message : 'Okänt fel'}`);
