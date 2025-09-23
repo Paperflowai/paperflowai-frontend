@@ -33,19 +33,30 @@ export default function FotaKvittoPage() {
     const interval = setInterval(tick, 400);
     const fd = new FormData();
     fd.append("file", file);
-    const res = await fetch("/api/ocr/image", { method: "POST", body: fd });
-    const data = await res.json();
-    cancelled = true;
-    clearInterval(interval);
-    if (data.ok) {
-      setProgress(100);
-      setText(data.text || "");
-      setStatus("Klart ✅");
-    } else {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 45000);
+    try {
+      const res = await fetch("/api/ocr/image", { method: "POST", body: fd, signal: ctrl.signal });
+      const data = await res.json().catch(() => ({ ok: false, error: "Bad JSON" }));
+      cancelled = true;
+      clearInterval(interval);
+      if (res.ok && data.ok) {
+        setProgress(100);
+        setText(data.text || "");
+        setStatus("Klart ✅");
+      } else {
+        setProgress(0);
+        setStatus(`Fel ❌ ${data?.error || res.status}`);
+      }
+    } catch (e: any) {
+      cancelled = true;
+      clearInterval(interval);
       setProgress(0);
-      setStatus("Fel ❌");
+      setStatus(`Fel ❌ ${e?.name === 'AbortError' ? 'Timeout (45s)' : (e?.message || 'Nätverksfel')}`);
+    } finally {
+      clearTimeout(to);
+      setTimeout(() => setIsLoading(false), 400);
     }
-    setTimeout(() => setIsLoading(false), 500);
   };
 
   // Rensa minnet för objectURL
