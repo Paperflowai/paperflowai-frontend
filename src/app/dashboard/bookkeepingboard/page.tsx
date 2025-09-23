@@ -483,7 +483,12 @@ export default function BookkeepingBoardPage() {
         >
           ← Tillbaka till kundregister
         </Link>
-        {/* OCR-funktion borttagen: länken till fota-kvitto tas bort */}
+        <Link
+          href="/fota-kvitto"
+          className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 transition-colors"
+        >
+          📷 Fota fler kvitton
+        </Link>
         <Link
           href="y/dashboard/settings"
           className="bg-purple-600 text-white px-4 py-2 rounded text-sm hover:bg-purple-700 transition-colors"
