@@ -1297,9 +1297,51 @@ Signatur:
         </div>
       </div>
 
+      <PdfUploadBox />
+
       <div className="flex gap-4 mt-6">
         <Link href="/dashboard"><button className="bg-gray-300 hover:bg-gray-400 text-black px-4 py-2 rounded">← Tillbaka</button></Link>
       </div>
+    </div>
+  );
+}
+
+function PdfUploadBox() {
+  const [file, setFile] = useState<File | null>(null);
+  const [status, setStatus] = useState("");
+
+  const handleUpload = async () => {
+    if (!file) return;
+    setStatus("Laddar upp...");
+
+    const formData = new FormData();
+    formData.append("file", file);
+    const uploadRes = await fetch("/api/pdf/upload", { method: "POST", body: formData });
+    const uploadData = await uploadRes.json();
+
+    const parseRes = await fetch("/api/pdf/parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ textContent: uploadData.textContent || "" }),
+    });
+    const parsed = await parseRes.json();
+
+    const saveRes = await fetch("/api/pdf/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parsed: parsed.parsed }),
+    });
+
+    if (saveRes.ok) setStatus("Offert sparad i kundkortet ✅");
+    else setStatus("Fel vid sparande ❌");
+  };
+
+  return (
+    <div className="border rounded p-3 mt-4">
+      <p className="font-semibold mb-2">📄 Ladda upp offert-PDF</p>
+      <input type="file" accept="application/pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+      <button onClick={handleUpload} className="ml-2 px-3 py-1 rounded bg-blue-600 text-white">Ladda upp</button>
+      {status && <p className="text-sm mt-2">{status}</p>}
     </div>
   );
 }
