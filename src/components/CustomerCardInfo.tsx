@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { formatCustomerLines } from "@/lib/customerFormat";
 
 type Card = {
   id: string;
@@ -12,6 +13,11 @@ type Card = {
   city?: string | null;
   country?: string | null;
   updated_at?: string | null;
+  // optional extras we may store in future
+  customerNumber?: string | null;
+  contactPerson?: string | null;
+  position?: string | null;
+  dateISO?: string | null;
 };
 
 export default function CustomerCardInfo({ customerId }: { customerId: string }) {
@@ -37,6 +43,8 @@ export default function CustomerCardInfo({ customerId }: { customerId: string })
     return () => { cancelled = true; };
   }, [customerId]);
 
+  const lines = useMemo(() => (card ? formatCustomerLines(card as any) : []), [card]);
+
   if (loading) return <div className="text-sm text-gray-500">Hämtar kunduppgifter…</div>;
   if (error)   return <div className="text-sm text-red-600">Fel: {error}</div>;
   if (!card)   return <div className="text-sm text-gray-500">Inga kunduppgifter sparade ännu.</div>;
@@ -45,14 +53,11 @@ export default function CustomerCardInfo({ customerId }: { customerId: string })
     <div className="rounded-lg border bg-white p-3 text-sm">
       <div className="font-semibold mb-2">Kunduppgifter</div>
       <div className="grid grid-cols-1 gap-1">
-        <div><span className="text-gray-500">Namn:</span> {card.name ?? "-"}</div>
-        <div><span className="text-gray-500">Org.nr:</span> {card.orgnr ?? "-"}</div>
-        <div><span className="text-gray-500">E-post:</span> {card.email ?? "-"}</div>
-        <div><span className="text-gray-500">Telefon:</span> {card.phone ?? "-"}</div>
-        <div><span className="text-gray-500">Adress:</span> {card.address ?? "-"}</div>
-        <div><span className="text-gray-500">Postnr:</span> {card.zip ?? "-"}</div>
-        <div><span className="text-gray-500">Ort:</span> {card.city ?? "-"}</div>
-        <div><span className="text-gray-500">Land:</span> {card.country ?? "-"}</div>
+        {lines.map((row) => (
+          <div key={row.label}>
+            <span className="text-gray-500">{row.label}:</span> {row.value}
+          </div>
+        ))}
       </div>
     </div>
   );

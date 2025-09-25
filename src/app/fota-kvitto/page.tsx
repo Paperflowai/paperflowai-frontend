@@ -37,13 +37,27 @@ export default function FotaKvittoPage() {
     const to = setTimeout(() => ctrl.abort(), 45000);
     try {
       const res = await fetch("/api/ocr/image", { method: "POST", body: fd, signal: ctrl.signal });
-      const data = await res.json().catch(() => ({ ok: false, error: "Bad JSON" }));
+      const raw = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = { ok: false, error: "Bad JSON", raw: raw?.slice(0, 200) };
+      }
       cancelled = true;
       clearInterval(interval);
       if (res.ok && data.ok) {
         setProgress(100);
-        setText(data.text || "");
-        setStatus("Klart ✅");
+        // Visa sammanfattning av resultatet
+        const summary = (() => {
+          const r = data?.result;
+          if (!r) return "Sparat";
+          if (r.type === "receipt") return "Kvitto sparat i bokföringen";
+          if (r.type === "offer") return "Offert skapad";
+          return "Klart";
+        })();
+        setText(data?.result ? JSON.stringify(data.result, null, 2) : "");
+        setStatus(`${summary} ✅`);
       } else {
         setProgress(0);
         setStatus(`Fel ❌ ${data?.error || res.status}`);
