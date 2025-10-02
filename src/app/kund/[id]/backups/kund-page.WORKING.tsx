@@ -1,15 +1,13 @@
 "use client";
 
+import dynamic from "next/dynamic";
+const OfferList = dynamic(() => import("@/components/OfferList"), { ssr: false });
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import LogoutButton from "@/components/LogoutButton";
 import OfferList from "@/components/OfferList";
 import OfferRealtime from "./OfferRealtime";
-import { CheckCircle, XCircle, Send, FilePlus, FileText } from 'lucide-react';
-import { defaultFlow, FlowStatus, loadFlowStatus, upsertFlowStatus } from "@/lib/flowStatus";
-import { supabase } from "@/lib/supabaseClient";
-import { BUCKET_DOCS } from "@/lib/storage";
 
 type DocFile = { name: string; url: string };
 type BkFile = { name: string; url: string; type: "image" | "pdf" };
@@ -20,12 +18,9 @@ declare global {
   }
 }
 
-const isMobile =
-  typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-/* ==================================
-   IndexedDB Database helper functions
-   ==================================== */
+/* ============================
+   Liten IndexedDB-hjälpare
+   ============================ */
 const DB_NAME = "paperflow-docs";
 const STORE = "files";
 
@@ -73,92 +68,13 @@ async function idbDel(key: string) {
   });
 }
 
-/* ====================================
-   Mobile detection helper functions
-   ==================================== */
-function isMobileDevice() {
-  return typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-}
-
-/* =======================
-   Flow Status Hook
-   ======================= */
-
-function useFlowStatusSupabase(customerId: string) {
-  const [status, setStatus] = React.useState<FlowStatus>(defaultFlow);
-  const [loading, setLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    let ok = true;
-    (async () => {
-      try { 
-        const s = await loadFlowStatus(customerId); 
-        if (ok) setStatus(s); 
-      }
-      finally { 
-        if (ok) setLoading(false); 
-      }
-    })();
-    return () => { ok = false; };
-  }, [customerId]);
-
-  const save = React.useCallback(async (patch: Partial<FlowStatus>) => {
-    const s = await upsertFlowStatus(customerId, patch);
-    setStatus(s);
-  }, [customerId]);
-
-  return { status, save, loading };
-}
-
-  // Liten väntare för demo innan riktiga API-anrop kopplas på
-  const fakeWait = (ms = 500) => new Promise((r) => setTimeout(r, ms));
-
-/* =======================
-   React Components
-   ======================= */
-
-function SectionCard({ title, children, right }: { title: string; children: React.ReactNode; right?: React.ReactNode }) {
-  return (
-    <section className="bg-white border rounded-2xl shadow-sm p-4 md:p-6">
-      <div className="flex items-start justify-between mb-4">
-        <h3 className="text-lg font-semibold">{title}</h3>
-        {right}
-      </div>
-      {children}
-    </section>
-  );
-}
-
+/* ============================
+   Komponent
+   ============================ */
 export default function KundDetaljsida() {
   const params = useParams();
   const router = useRouter();
   const id = parseInt(params.id as string);
-  
-  // Flow status hook
-  const customerId = typeof params?.id === 'string' ? params.id : "";
-  const { status, save } = useFlowStatusSupabase(customerId);
-
-  // Handle creating order from offer
-  const handleCreateOrder = async () => {
-    setOrderLoading(true);
-    try {
-      const res = await fetch('/api/orders/create-from-offer', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ customerId, offerPath: (await ensureOfferPath()).path, bucket: BUCKET_DOCS }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const { url } = await res.json();
-      setOrderPdfUrl(url);
-      await save({ orderCreated: true });
-    } catch (e: any) {
-      console.error(e);
-      alert(`Kunde inte skapa order: ${e.message || e}`);
-    } finally {
-      setOrderLoading(false);
-    }
-  };
 
   const [data, setData] = useState({
     companyName: "",
@@ -186,29 +102,17 @@ export default function KundDetaljsida() {
   const [offert, setOffert] = useState<DocFile | null>(null);
   const [order, setOrder] = useState<DocFile | null>(null);
   const [invoice, setInvoice] = useState<DocFile | null>(null);
-  const [orderPdfUrl, setOrderPdfUrl] = useState<string | null>(null);
-  const [orderLoading, setOrderLoading] = useState(false);
-  const [offerPath, setOfferPath] = useState<string | null>(null);
   const [sentStatus, setSentStatus] = useState<{ [key: string]: string }>({
     offert: "",
     order: "",
     invoice: ""
   });
 
-  // New flow documents
-  const [flowDocuments, setFlowDocuments] = useState<{
-    offers: any[];
-    orders: any[];
-    invoices: any[];
-  }>({ offers: [], orders: [], invoices: [] });
-
-  // Bokföring (bilder + PDF:er) - kvar i localStorage tills du vill flytta dem också
+  // 📚 Bokföring (bilder + PDF:er) – kvar i localStorage tills du vill flytta dem också
   const [bookkeepingFiles, setBookkeepingFiles] = useState<BkFile[]>([]);
 
   // Hålla koll på Blob-URL:er för att kunna revoke() på unmount
   const objectUrlsRef = useRef<string[]>([]);
-  const offertCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const offertPagesRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     // Först försök hämta från den nya strukturen (paperflow_customers_v1)
@@ -310,89 +214,6 @@ export default function KundDetaljsida() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  useEffect(() => {
-    if (!isMobile || !offert?.url || !offertPagesRef.current) return;
-
-    let raf = 0;
-    const draw = () => {
-      raf = requestAnimationFrame(() => {
-        renderPdfToContainer(offert.url, offertPagesRef.current!).catch(console.warn);
-      });
-    };
-
-    draw();
-    const onResize = () => draw();
-    window.addEventListener("resize", onResize);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", onResize);
-    };
-  }, [isMobile, offert?.url]);
-
-  // Load flow documents
-  useEffect(() => {
-    const loadFlowDocuments = async () => {
-      try {
-        const response = await fetch(`/api/customers/${id}/documents`);
-        if (response.ok) {
-          const documents = await response.json();
-          setFlowDocuments(documents);
-        }
-      } catch (error) {
-        console.warn('Failed to load flow documents:', error);
-      }
-    };
-    
-    if (id) {
-      loadFlowDocuments();
-    }
-  }, [id]);
-
-  // Fallback vid mount (om offerten redan fanns)
-  useEffect(() => {
-    (async () => {
-      if (offerPath || !customerId) return;
-      // 1) Försök läsa senaste offertraden
-      const { data: doc } = await supabase
-        .from('documents')
-        .select('storage_path')
-        .eq('customer_id', customerId)
-        .in('type', ['offer','offert'])
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (doc?.storage_path) setOfferPath(doc.storage_path);
-    })();
-  }, [offerPath, customerId]);
-
-  // Helper som säkrar offerPath även när offerten bara är en blob-preview
-  async function ensureOfferPath(): Promise<{ bucket: string, path: string }> {
-    const el = document.querySelector('[data-testid="offer-preview"]');
-    const pathAttr = el?.getAttribute('data-offer-path') || null;
-
-    const path = offerPath ?? pathAttr;
-    if (path) return { bucket: BUCKET_DOCS, path };
-
-    // fallback: hämta senaste offert-path från DB om ni sparar den där
-    const { data: doc } = await supabase
-      .from('documents')
-      .select('storage_path')
-      .eq('customer_id', customerId)
-      .in('type', ['offer','offert'])
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (doc?.storage_path) {
-      setOfferPath(doc.storage_path);
-      (el as HTMLElement | null)?.setAttribute('data-offer-path', doc.storage_path);
-      return { bucket: BUCKET_DOCS, path: doc.storage_path };
-    }
-
-    throw new Error('Ingen offert hittad. Ladda upp offerten igen i första rutan.');
-  }
-
   function persistData(updated: typeof data) {
     // Spara till den nya strukturen (paperflow_customers_v1)
     const existingCustomers = JSON.parse(localStorage.getItem('paperflow_customers_v1') || '[]');
@@ -464,7 +285,7 @@ export default function KundDetaljsida() {
     });
   }
 
-  // === Load PDF.js (via CDN) exactly once ===
+  // === Ladda PDF.js (via CDN) exakt en gång ===
   async function loadPdfJsOnce(): Promise<any> {
     if (window.pdfjsLib) return window.pdfjsLib;
 
@@ -479,147 +300,13 @@ export default function KundDetaljsida() {
 
     const pdfjsLib = window.pdfjsLib!;
     try {
-      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc =
-          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-      }
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
     } catch {}
     return pdfjsLib;
   }
 
-  async function renderPdfToContainer(url: string, container: HTMLDivElement) {
-    const pdfjsLib = await loadPdfJsOnce();
-
-    // Clear existing content
-    container.innerHTML = "";
-
-    // Measure width robustly (fallback if 0 px)
-    const measureWidth = () => {
-      const r = container.getBoundingClientRect();
-      if (r.width > 0) return Math.floor(r.width);
-      if (container.parentElement) {
-        const pr = container.parentElement.getBoundingClientRect();
-        if (pr.width > 0) return Math.floor(pr.width);
-      }
-      return Math.floor(window.innerWidth || 360);
-    };
-
-    // Wait two frames for layout to set width (mobile-safe)
-    await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res as any)));
-
-    const cssWidth = measureWidth();
-    const dpr = Math.min(window.devicePixelRatio || 1, 2); // small cap for stability/memory
-
-    // Try URL first; fallback to ArrayBuffer if it fails
-    let doc: any;
-    try {
-      doc = await pdfjsLib.getDocument({ url }).promise;
-    } catch {
-      const ab = await (await fetch(url)).arrayBuffer();
-      doc = await pdfjsLib.getDocument({ data: ab }).promise;
-    }
-
-    for (let p = 1; p <= doc.numPages; p++) {
-      try {
-        const page = await doc.getPage(p);
-        const base = page.getViewport({ scale: 1 });
-        const scale = (cssWidth * dpr) / base.width;
-        const vp = page.getViewport({ scale });
-
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d")!;
-
-        // pixel size (render)
-        canvas.width = Math.ceil(vp.width);
-        canvas.height = Math.ceil(vp.height);
-
-        // visible size (CSS)
-        canvas.style.width = cssWidth + "px";
-        canvas.style.height = Math.ceil(vp.height / dpr) + "px";
-        canvas.className = "mb-3 rounded border bg-white";
-
-        // white background (Android/transparency)
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        await page.render({ canvasContext: ctx, viewport: vp }).promise;
-        container.appendChild(canvas);
-
-        await new Promise(resolve => {
-          if (typeof window.requestIdleCallback === 'function') {
-            window.requestIdleCallback(resolve);
-          } else {
-            setTimeout(resolve, 0);
-          }
-        });
-      } catch (e) {
-        console.warn("Render fail p", p, e);
-      }
-    }
-  }
-
-  async function renderPdfToCanvas(url: string, canvas: HTMLCanvasElement) {
-    const pdfjsLib = await loadPdfJsOnce();
-    const ab = await (await fetch(url)).arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
-    
-    const dpr = Math.min(window.devicePixelRatio || 1, 2.5); // cap for memory
-    const cssWidth = canvas.clientWidth || 360;
-
-    // Load all pages and calculate all measures first
-    const pages = [];
-    const pageRenders = [];
-    
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-      pages.push(await pdf.getPage(pageNum));
-    }
-    
-    // Calculate viewport for all pages
-    const pageData = [];
-    let totalHeight = 0;
-    let maxWidth = 0;
-    
-    for (const page of pages) {
-      const pageBase = page.getViewport({ scale: 1 });
-      const pageScale = (cssWidth * dpr) / pageBase.width;
-      const pageVp = page.getViewport({ scale: pageScale });
-      
-      pageData.push({
-        page,
-        viewport: pageVp,
-        width: Math.ceil(pageVp.width),
-        height: Math.ceil(pageVp.height),
-        yOffset: totalHeight
-      });
-      
-      totalHeight += Math.ceil(pageVp.height);
-      maxWidth = Math.max(maxWidth, Math.ceil(pageVp.width));
-    }
-
-    // Set canvas pixel size 
-    canvas.width = maxWidth;
-    canvas.height = totalHeight;
-    
-    // Set CSS size (visible size) to provide space for scrollbar
-    canvas.style.width = cssWidth + "px";
-    canvas.style.height = Math.ceil(totalHeight / dpr) + "px";
-
-    const ctx = canvas.getContext("2d")!;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.imageSmoothingEnabled = true;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Render all pages at correct positions
-    for (const pageInfo of pageData) {
-      await pageInfo.page.render({
-        canvasContext: ctx,
-        viewport: pageInfo.viewport,
-        transform: [1, 0, 0, 1, 0, pageInfo.yOffset]
-      }).promise;
-    }
-  }
-
-  // === Extract text from PDF (all pages) ===
+  // === Läs ut text från PDF (alla sidor) ===
   async function extractTextFromPDF(file: File): Promise<string> {
     try {
       const pdfjsLib = await loadPdfJsOnce();
@@ -640,7 +327,7 @@ export default function KundDetaljsida() {
     }
   }
 
-  // Helper for parser
+  // Hjälpare för parser
   function normalize(s: string) {
     return s
       .replace(/\u2011|\u2013|\u2014/g, "-")
@@ -653,7 +340,7 @@ export default function KundDetaljsida() {
     return (zip || "").trim();
   }
 
-  // === Parser (safe, null-guarded) ===
+  // === Parser (säker, null-guarded) ===
   function parseFieldsFromText(txt: string, filename?: string) {
     try {
       const norm = normalize(txt || "");
@@ -785,7 +472,7 @@ export default function KundDetaljsida() {
     localStorage.setItem(`kund_sent_${id}`, JSON.stringify(newStatus));
   }
 
-  // === Uppladdning (IndexedDB + Supabase Storage + säker reset av input) ===
+  // === Uppladdning (IndexedDB + säker reset av input) ===
   async function handleSpecialUpload(
     e: React.ChangeEvent<HTMLInputElement>,
     type: "offert" | "order" | "invoice"
@@ -810,109 +497,24 @@ export default function KundDetaljsida() {
       const meta = { name: uploaded.name };
       localStorage.setItem(`kund_${type}_${id}`, JSON.stringify(meta));
 
-      // 4) Upload to Supabase Storage for offerts
-      if (type === "offert") {
-        const timestamp = Date.now();
-        const fileName = `offers/${customerId}/${timestamp}-${uploaded.name}`;
-        
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from(BUCKET_DOCS)
-          .upload(fileName, uploaded, { upsert: true });
-
-        if (uploadError) {
-          console.error('Supabase upload error:', uploadError);
-        } else {
-          // Save storage path and create preview URL
-          setOfferPath(uploadData.path);
-          
-          const { data: signed } = await supabase.storage
-            .from(BUCKET_DOCS)
-            .createSignedUrl(uploadData.path, 60 * 60);
-          
-          // Update the offer state with the signed URL
-          const newFile = { name: uploaded.name, url: signed?.signedUrl ?? '' };
-          setOffert(newFile);
-
-          // Save document record in database
-          const { error: docError } = await supabase
-            .from('documents')
-            .insert({
-              customer_id: customerId,
-              type: 'offer',
-              storage_path: uploadData.path,
-              filename: uploaded.name,
-              created_at: new Date().toISOString()
-            });
-
-          if (docError) {
-            console.error('Documents table insert error:', docError);
-          } else {
-            console.log('Offer saved to Supabase:', uploadData.path);
-          }
-
-          // 6) Autofyll vid offert using server-side parsing
-          try {
-            const resp = await fetch('/api/offers/parse', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({ bucket: BUCKET_DOCS, path: uploadData.path })
-            });
-            
-            if (resp.ok) {
-              const parsed = await resp.json();
-              
-              // Update customer data with parsed data
-              const updated = { ...data, ...parsed.customer };
-              setData(updated);
-              persistData(updated);
-              
-              // Save to database
-              const { error: updateError } = await supabase
-                .from('customers')
-                .update(parsed.customer)
-                .eq('id', customerId);
-              
-              if (updateError) {
-                console.error('Customer update error:', updateError);
-              } else {
-                console.log("Autofyllda fält från server:", parsed.customer);
-              }
-            } else {
-              const errorText = await resp.text();
-              console.warn("Parse API failed:", errorText);
-              
-              // Fallback to local parsing
-              const text = await extractTextFromPDF(uploaded);
-              if (text && text.trim().length > 0) {
-                const mapped = parseFieldsFromText(text, uploaded.name);
-                const updated = { ...data, ...mapped };
-                persistData(updated);
-                console.log("Autofyllda fält (fallback):", mapped);
-              }
-            }
-          } catch (parseError) {
-            console.error("Parse error:", parseError);
-            
-            // Fallback to local parsing
-            const text = await extractTextFromPDF(uploaded);
-            if (text && text.trim().length > 0) {
-              const mapped = parseFieldsFromText(text, uploaded.name);
-              const updated = { ...data, ...mapped };
-              persistData(updated);
-              console.log("Autofyllda fält (fallback):", mapped);
-            }
-          }
-        }
-      }
-
-      // 5) Uppdatera state (offert handled above)
-      if (type !== "offert") {
+      // 4) Uppdatera state
       const newFile = { name: uploaded.name, url };
+      if (type === "offert") setOffert(newFile);
       if (type === "order") setOrder(newFile);
       if (type === "invoice") setInvoice(newFile);
-      }
 
+      // 5) Autofyll vid offert
+      if (type === "offert") {
+        const text = await extractTextFromPDF(uploaded);
+        if (text && text.trim().length > 0) {
+          const mapped = parseFieldsFromText(text, uploaded.name);
+          const updated = { ...data, ...mapped };
+          persistData(updated);
+          console.log("Autofyllda fält:", mapped);
+        } else {
+          console.warn("Ingen text hittad i PDF (skannad bild?). Autofyll hoppades över.");
+        }
+      }
     } finally {
       // ✅ säkert att nollställa efter async
       inputEl.value = "";
@@ -989,112 +591,6 @@ export default function KundDetaljsida() {
     });
   }
 
-  // Flow operations
-  async function createOfferFromForm() {
-    try {
-      const response = await fetch(`/api/customers/${id}/offers/create-from-form`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      
-      const result = await response.json();
-      if (result.ok) {
-        // Reload flow documents
-        window.location.reload();
-      } else {
-        alert('Kunde inte skapa offert: ' + (result.error || 'Okänt fel'));
-      }
-    } catch (error) {
-      alert('Kunde inte skapa offert: ' + error);
-    }
-  }
-
-  async function sendOffer(offerId: string) {
-    try {
-      const response = await fetch(`/api/offers/${offerId}/send`, {
-        method: 'POST'
-      });
-      
-      const result = await response.json();
-      if (result.ok) {
-        window.location.reload();
-      } else {
-        alert('Kunde inte skicka offert: ' + (result.error || 'Okänt fel'));
-      }
-    } catch (error) {
-      alert('Kunde inte skicka offert: ' + error);
-    }
-  }
-
-  async function offerToOrder(offerId: string) {
-    try {
-      const response = await fetch(`/api/offers/${offerId}/to-order`, {
-        method: 'POST'
-      });
-      
-      const result = await response.json();
-      if (result.ok) {
-        window.location.reload();
-      } else {
-        alert('Kunde inte skapa order: ' + (result.error || 'Okänt fel'));
-      }
-    } catch (error) {
-      alert('Kunde inte skapa order: ' + error);
-    }
-  }
-
-  async function orderToInvoice(orderId: string) {
-    try {
-      const response = await fetch(`/api/orders/${orderId}/to-invoice`, {
-        method: 'POST'
-      });
-      
-      const result = await response.json();
-      if (result.ok) {
-        window.location.reload();
-      } else {
-        alert('Kunde inte skapa faktura: ' + (result.error || 'Okänt fel'));
-      }
-    } catch (error) {
-      alert('Kunde inte skapa faktura: ' + error);
-    }
-  }
-
-  async function sendInvoice(invoiceId: string) {
-    try {
-      const response = await fetch(`/api/invoices/${invoiceId}/send`, {
-        method: 'POST'
-      });
-      
-      const result = await response.json();
-      if (result.ok) {
-        window.location.reload();
-      } else {
-        alert('Kunde inte skicka faktura: ' + (result.error || 'Okänt fel'));
-      }
-    } catch (error) {
-      alert('Kunde inte skicka faktura: ' + error);
-    }
-  }
-
-  async function invoiceToBookkeeping(invoiceId: string) {
-    try {
-      const response = await fetch(`/api/invoices/${invoiceId}/export-bookkeeping`, {
-        method: 'POST'
-      });
-      
-      const result = await response.json();
-      if (result.ok) {
-        window.location.reload();
-      } else {
-        alert('Kunde inte exportera till bokföring: ' + (result.error || 'Okänt fel'));
-      }
-    } catch (error) {
-      alert('Kunde inte exportera till bokföring: ' + error);
-    }
-  }
-
   // Ta bort en huvud-PDF
   async function removeDoc(type: "offert" | "order" | "invoice") {
     const key = `${type}_${id}`;
@@ -1107,25 +603,9 @@ export default function KundDetaljsida() {
   }
 
             return (
-    <div className="min-h-screen bg-white p-6 text-gray-800 max-w-6xl mx-auto">
+            <div className="min-h-screen bg-white p-6 text-gray-800 max-w-4xl mx-auto">
               <LogoutButton />
-              
-      {/* Sticky toppbar */}
-      <header className="sticky top-0 z-40 backdrop-blur bg-white/70 border-b mb-6">
-        <div className="max-w-6xl mx-auto px-4 py-3">
-          <div className="flex items-center justify-between mb-2">
-            <Link href="/dashboard" className="text-sm text-gray-600 hover:underline">← Tillbaka</Link>
-            <div /> {/* spacer */}
-                </div>
-          <div className="text-center">
-            <h1 className="text-2xl font-bold">KUNDKORT</h1>
-            <div className="text-xs text-gray-500">
-              {data.companyName && <div>{data.companyName}</div>}
-              <div>Kundnummer: <span className="inline-block bg-gray-100 px-2 py-0.5 rounded">{data.customerNumber}</span></div>
-            </div>
-          </div>
-        </div>
-      </header>
+              <h1 className="text-3xl font-bold mb-6">Kundkort</h1>
 
       {/* Till bokföringen-knapp */}
       <div className="mb-4 flex justify-between">
@@ -1143,9 +623,8 @@ export default function KundDetaljsida() {
         </Link>
       </div>
 
-      {/* Kunduppgifter */}
-      <SectionCard title="Kunduppgifter">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* === Kunduppgifter med rubriker === */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
         <div className="flex flex-col">
           <label htmlFor="companyName" className="text-sm text-gray-600 mb-1">Företagsnamn</label>
           <input id="companyName" name="companyName" value={data.companyName} onChange={handleChange} className="border p-2 rounded" />
@@ -1196,6 +675,7 @@ export default function KundDetaljsida() {
           <input id="contactDate" name="contactDate" type="date" value={data.contactDate} onChange={handleChange} className="border p-2 rounded" />
         </div>
 
+        {/* Behåller extra fält */}
         <div className="flex flex-col">
           <label htmlFor="role" className="text-sm text-gray-600 mb-1">Befattning</label>
           <input id="role" name="role" value={data.role} onChange={handleChange} className="border p-2 rounded" />
@@ -1206,12 +686,12 @@ export default function KundDetaljsida() {
           <input id="country" name="country" value={data.country} onChange={handleChange} className="border p-2 rounded" />
         </div>
       </div>
-      </SectionCard>
 
-      {/* Offertdata (om de finns) */}
+      {/* === Offertdata (om de finns) === */}
       {(data.totalSum || data.vatPercent || data.vatAmount || data.validityDays) && (
-        <SectionCard title="💰 Offertdata">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="mb-6">
+          <h2 className="text-xl font-bold mb-4">💰 Offertdata</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
             {data.totalSum && (
               <div className="flex flex-col">
                 <label htmlFor="totalSum" className="text-sm text-gray-600 mb-1">Totalsumma</label>
@@ -1240,27 +720,48 @@ export default function KundDetaljsida() {
               </div>
             )}
           </div>
-        </SectionCard>
+        </div>
       )}
 
-      {/* Dokumentflöde */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Offert Card */}
-        <SectionCard title="🧾 Offert" right={
-          <span className={`text-xs px-2 py-0.5 rounded-full ${sentStatus["offert"] ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
-            {sentStatus["offert"] ? `Skickad ${sentStatus["offert"]}` : "Utkast"}
-          </span>
-        }>
+      {/* Offerter */}
+      <OfferRealtime customerId={String(id)} />
+      <h2 className="text-xl font-bold mt-6 mb-3">Offerter</h2>
+      <OfferList customerId={String(id)} />
+
+      <h2 className="text-xl font-bold mt-8">📷 Bilder och kladdlappar</h2>
+      <input type="file" accept="image/*" multiple onChange={handleImageUpload} className="mt-2 mb-4 text-blue-700 font-semibold cursor-pointer" />
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        {images.map((img, idx) => (
+          <div key={idx} className="border p-2 rounded shadow relative">
+            <img src={img.url} alt={img.name} className="w-full h-auto rounded" />
+            <p className="text-xs mt-1 break-all">{img.name}</p>
+            <button
+              onClick={() => deleteImage(idx)}
+              className="absolute top-1 right-1 text-red-600 text-sm font-bold bg-white px-2 py-0.5 rounded"
+              title="Ta bort bild"
+            >
+              🗑️
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <h2 className="text-xl font-bold mt-8">GPT-genererade dokument</h2>
+
+      {/* Offert */}
+      <div className="mb-4">
+        <p className="font-semibold">🧾 Offert (PDF):</p>
         <input
           type="file"
           accept="application/pdf"
           onChange={(e) => handleSpecialUpload(e, "offert")}
-            className="text-blue-700 font-semibold cursor-pointer mb-4 w-full"
+          className="text-blue-700 font-semibold cursor-pointer"
         />
         {offert && (
-            <div className="space-y-2">
+          <div className="mt-2 space-y-2">
             <div className="flex justify-between items-center gap-4">
               <p className="text-sm text-blue-600">📎 {offert.name}</p>
+              <div className="flex gap-2">
                 <button
                   onClick={async () => {
                     await removeDoc("offert");
@@ -1270,55 +771,31 @@ export default function KundDetaljsida() {
                 >
                   🗑️ Ta bort
                 </button>
+              </div>
             </div>
-            {isMobile ? (
-              <div ref={offertPagesRef} className="w-full" />
-            ) : (
-              <iframe
-                src={offert.url + "#toolbar=0"}
-                className="w-full h-96 border rounded"
-                title="Offert PDF"
-                data-testid="offer-preview"
-                data-offer-path={offerPath ?? ''}
-                data-bucket={BUCKET_DOCS}
-              />
-            )}
-              <div className="flex items-center gap-2" data-testid="offer-actions">
-                <button
-                  type="button"
-                  className="btn btn-primary flex items-center gap-1"
-                  onClick={async () => { await fakeWait(); await save({ offerSent: true }); }}
-                  title="Skicka offert"
-                >
-                  <Send size={16} /> Skicka
+            <iframe src={offert.url} className="w-full h-64 border rounded" title="Offert PDF"></iframe>
+            <div className="flex gap-2 mt-2">
+              <button onClick={() => skickaEpost(offert.url, "offert")} className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">
+                📤 Skicka
               </button>
-
-                {status.offerSent
-                  ? <span className="flex items-center gap-1 text-green-600"><CheckCircle size={16} /> Skickad</span>
-                  : <span className="flex items-center gap-1 text-red-600"><XCircle size={16} /> Ej skickad</span>}
-
-                <button type="button" className="btn btn-secondary flex items-center gap-1" onClick={() => window.print()}>
-                  <FileText size={16} /> Skriv ut
-                </button>
+              <button onClick={() => printPdf(offert.url)} className="bg-gray-300 px-3 py-1 rounded hover:bg-gray-400">🖨️ Skriv ut</button>
+              {sentStatus["offert"] && <p className="text-green-600 text-sm">✔️ Skickad {sentStatus["offert"]}</p>}
             </div>
           </div>
         )}
-        </SectionCard>
+      </div>
 
-        {/* Order Card */}
-        <SectionCard title="📑 Orderbekräftelse" right={
-          <span className={`text-xs px-2 py-0.5 rounded-full ${sentStatus["order"] ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
-            {sentStatus["order"] ? `Skickad ${sentStatus["order"]}` : "Utkast"}
-          </span>
-        }>
+      {/* Order */}
+      <div className="mb-4">
+        <p className="font-semibold">📑 Orderbekräftelse (PDF):</p>
         <input
           type="file"
           accept="application/pdf"
           onChange={(e) => handleSpecialUpload(e, "order")}
-            className="text-blue-700 font-semibold cursor-pointer mb-4 w-full"
+          className="text-blue-700 font-semibold cursor-pointer"
         />
         {order && (
-            <div className="space-y-2">
+          <div className="mt-2 space-y-2">
             <div className="flex justify-between items-center">
               <p className="text-sm text-blue-600">📎 {order.name}</p>
               <button
@@ -1329,67 +806,28 @@ export default function KundDetaljsida() {
               </button>
             </div>
             <iframe src={order.url} className="w-full h-64 border rounded" title="Order PDF"></iframe>
+            <div className="flex gap-2 mt-2">
+              <button onClick={() => skickaEpost(order.url, "order")} className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">
+                📤 Skicka
+              </button>
+              <button onClick={() => printPdf(order.url)} className="bg-gray-300 px-3 py-1 rounded hover:bg-gray-400">🖨️ Skriv ut</button>
+              {sentStatus["order"] && <p className="text-green-600 text-sm">✔️ Skickad {sentStatus["order"]}</p>}
             </div>
-        )}
-        
-        {/* Order PDF Preview */}
-        {orderPdfUrl ? (
-          <div className="mt-2">
-            <iframe 
-              src={orderPdfUrl} 
-              className="w-full h-[420px] rounded border" 
-              title="Orderbekräftelse PDF"
-            />
-          </div>
-        ) : (
-          <div className="mt-2 text-sm text-gray-500">
-            Ingen orderbekräftelse skapad ännu.
           </div>
         )}
-        
-        {/* ORDER – knapprad, alltid synlig */}
-        <div className="flex items-center gap-3 mt-2" data-testid="order-actions">
-          <button
-            type="button"
-            className="btn btn-outline"
-            onClick={handleCreateOrder}
-            disabled={orderLoading}
-            title="Skapa order"
-          >
-            {orderLoading ? 'Skapar...' : 'Skapa order'}
-          </button>
+      </div>
 
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={async () => { await fakeWait(); await save({ orderSent: true }); }}
-            disabled={!status.orderCreated}
-            title="Skicka order"
-          >
-            Skicka
-          </button>
-
-          <div className="flex items-center gap-3">
-            {status.orderCreated && <span className="text-green-600">✓ Skapad</span>}
-            {status.orderSent ? <span className="text-green-600">✓ Skickad</span> : <span className="text-red-600">✗ Ej skickad</span>}
-          </div>
-        </div>
-        </SectionCard>
-
-        {/* Faktura Card */}
-        <SectionCard title="💰 Faktura" right={
-          <span className={`text-xs px-2 py-0.5 rounded-full ${sentStatus["invoice"] ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
-            {sentStatus["invoice"] ? `Skickad ${sentStatus["invoice"]}` : "Utkast"}
-          </span>
-        }>
+      {/* Faktura */}
+      <div className="mb-4">
+        <p className="font-semibold">💰 Faktura (PDF):</p>
         <input
           type="file"
           accept="application/pdf"
           onChange={(e) => handleSpecialUpload(e, "invoice")}
-            className="text-blue-700 font-semibold cursor-pointer mb-4 w-full"
+          className="text-blue-700 font-semibold cursor-pointer"
         />
         {invoice && (
-            <div className="space-y-2">
+          <div className="mt-2 space-y-2">
             <div className="flex justify-between items-center">
               <p className="text-sm text-blue-600">📎 {invoice.name}</p>
               <button
@@ -1400,75 +838,19 @@ export default function KundDetaljsida() {
               </button>
             </div>
             <iframe src={invoice.url} className="w-full h-64 border rounded" title="Faktura PDF"></iframe>
+            <div className="flex gap-2 mt-2">
+              <button onClick={() => skickaEpost(invoice.url, "invoice")} className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">
+                📤 Skicka
+              </button>
+              <button onClick={() => printPdf(invoice.url)} className="bg-gray-300 px-3 py-1 rounded hover:bg-gray-400">🖨️ Skriv ut</button>
+              {sentStatus["invoice"] && <p className="text-green-600 text-sm">✔️ Skickad {sentStatus["invoice"]}</p>}
+            </div>
           </div>
         )}
-        
-        {/* FAKTURA – knapprad, alltid synlig */}
-        <div className="flex flex-col gap-2 mt-2" data-testid="invoice-actions">
-          <div className="flex items-center gap-3">
-                      <button
-              type="button"
-              className="btn btn-outline"
-              onClick={async () => { await fakeWait(); await save({ invoiceCreated: true }); }}
-              title="Skapa faktura"
-            >
-              Skapa faktura
-                      </button>
-
-                      <button
-              type="button"
-              className="btn btn-primary"
-              onClick={async () => {
-                await fakeWait(); // skicka faktura
-                await fakeWait(); // skicka till bokföring
-                await save({ invoiceSent: true, invoicePosted: true });
-              }}
-              disabled={!status.invoiceCreated}
-              title="Skicka faktura"
-            >
-              Skicka
-                      </button>
-
-            {status.invoiceSent
-              ? <span className="text-green-600">✓ Skickad</span>
-              : <span className="text-red-600">✗ Ej skickad</span>}
-          </div>
-
-          <div className="text-sm">
-            {status.invoicePosted
-              ? <span className="text-green-600">✓ Skickad till bokföringen</span>
-              : <span className="text-gray-600">✗ Inte skickad till bokföringen</span>}
-          </div>
-        </div>
-      </SectionCard>
       </div>
 
-      {/* Offerter */}
-      <OfferRealtime customerId={String(id)} />
-      <OfferList customerId={String(id)} />
-
-      {/* Bilder och kladdlappar */}
-      <SectionCard title="📷 Bilder och kladdlappar">
-        <input type="file" accept="image/*" multiple onChange={handleImageUpload} className="mt-2 mb-4 text-blue-700 font-semibold cursor-pointer" />
-        <div className="grid grid-cols-2 gap-4">
-          {images.map((img, idx) => (
-            <div key={idx} className="border p-2 rounded shadow relative">
-              <img src={img.url} alt={img.name} className="w-full h-auto rounded" />
-              <p className="text-xs mt-1 break-all">{img.name}</p>
-              <button
-                onClick={() => deleteImage(idx)}
-                className="absolute top-1 right-1 text-red-600 text-sm font-bold bg-white px-2 py-0.5 rounded"
-                title="Ta bort bild"
-              >
-                🗑️
-              </button>
-            </div>
-          ))}
-        </div>
-      </SectionCard>
-
-      {/* Bokföring */}
-      <SectionCard title="📚 Bokföring">
+      {/* 📚 Bokföring */}
+      <h2 className="text-xl font-bold mt-8">📚 Bokföring</h2>
       <p className="text-sm text-gray-700 mb-2">Ladda upp kvitton (bild) eller underlag (PDF). Allt sparas lokalt för kunden.</p>
       <input
         type="file"
@@ -1477,7 +859,7 @@ export default function KundDetaljsida() {
         onChange={handleBookkeepingUpload}
         className="text-blue-700 font-semibold cursor-pointer mb-4"
       />
-        <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4 mb-6">
         {bookkeepingFiles.map((f, idx) => (
           <div key={idx} className="border p-2 rounded shadow relative">
             {f.type === "image" ? (
@@ -1496,23 +878,21 @@ export default function KundDetaljsida() {
           </div>
         ))}
       </div>
-      </SectionCard>
 
-      {/* Offerttext (om den finns) */}
+      <textarea name="notes" value={data.notes} onChange={handleChange} placeholder="Anteckningar..." rows={6} className="w-full border p-3 rounded mb-4" />
+
+      {/* === Offerttext (om den finns) === */}
       {data.offerText && (
-        <SectionCard title="📄 Offerttext från chatten">
+        <div className="mb-6">
+          <h2 className="text-xl font-bold mb-4">📄 Offerttext från chatten</h2>
           <div className="border p-4 rounded bg-gray-50">
             <pre className="whitespace-pre-wrap text-sm font-mono">{data.offerText}</pre>
           </div>
-        </SectionCard>
+        </div>
       )}
-
-      {/* Notes */}
-      <SectionCard title="Anteckningar">
-        <textarea name="notes" value={data.notes} onChange={handleChange} placeholder="Anteckningar..." rows={6} className="w-full border p-3 rounded" />
-      </SectionCard>
+      <div className="flex gap-4 mt-6">
+        <Link href="/dashboard"><button className="bg-gray-300 hover:bg-gray-400 text-black px-4 py-2 rounded">← Tillbaka</button></Link>
+      </div>
     </div>
   );
 }
-
-

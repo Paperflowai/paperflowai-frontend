@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { buildDocument } from '@/lib/pdf/buildDocument';
 
 type OrderConfirmationBody = {
   offerId: string;
@@ -40,136 +40,29 @@ export async function POST(req: Request) {
       return bad("Customer not found", 404);
     }
 
-    // Skapa PDF för orderbekräftelse
-    const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([595.28, 841.89]); // A4
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-
-    const { width, height } = page.getSize();
-    let yPosition = height - 50;
-
-    // Titel
-    page.drawText("ORDERBEKRÄFTELSE", {
-      x: 50,
-      y: yPosition,
-      size: 20,
-      font: boldFont,
-      color: rgb(0, 0, 0),
-    });
-    yPosition -= 40;
-
-    // Kundinformation
-    page.drawText("Kundinformation:", {
-      x: 50,
-      y: yPosition,
-      size: 14,
-      font: boldFont,
-      color: rgb(0, 0, 0),
-    });
-    yPosition -= 20;
-
-    page.drawText(`Företag: ${customer.name}`, {
-      x: 50,
-      y: yPosition,
-      size: 12,
-      font: font,
-      color: rgb(0, 0, 0),
-    });
-    yPosition -= 15;
-
-    if (customer.orgnr) {
-      page.drawText(`Org.nr: ${customer.orgnr}`, {
-        x: 50,
-        y: yPosition,
-        size: 12,
-        font: font,
-        color: rgb(0, 0, 0),
-      });
-      yPosition -= 15;
-    }
-
-    if (customer.address) {
-      page.drawText(`Adress: ${customer.address}`, {
-        x: 50,
-        y: yPosition,
-        size: 12,
-        font: font,
-        color: rgb(0, 0, 0),
-      });
-      yPosition -= 15;
-    }
-
-    if (customer.email) {
-      page.drawText(`E-post: ${customer.email}`, {
-        x: 50,
-        y: yPosition,
-        size: 12,
-        font: font,
-        color: rgb(0, 0, 0),
-      });
-      yPosition -= 15;
-    }
-
-    yPosition -= 20;
-
-    // Orderinformation
-    page.drawText("Orderinformation:", {
-      x: 50,
-      y: yPosition,
-      size: 14,
-      font: boldFont,
-      color: rgb(0, 0, 0),
-    });
-    yPosition -= 20;
-
-    page.drawText(`Offert: ${offer.title || "Offert"}`, {
-      x: 50,
-      y: yPosition,
-      size: 12,
-      font: font,
-      color: rgb(0, 0, 0),
-    });
-    yPosition -= 15;
-
-    page.drawText(`Belopp: ${offer.amount || 0} ${offer.currency || "SEK"}`, {
-      x: 50,
-      y: yPosition,
-      size: 12,
-      font: font,
-      color: rgb(0, 0, 0),
-    });
-    yPosition -= 15;
-
-    page.drawText(`Datum: ${new Date().toLocaleDateString("sv-SE")}`, {
-      x: 50,
-      y: yPosition,
-      size: 12,
-      font: font,
-      color: rgb(0, 0, 0),
-    });
-    yPosition -= 30;
-
-    // Bekräftelsetext
-    page.drawText("Vi bekräftar härmed att vi tagit emot er order enligt ovanstående offert.", {
-      x: 50,
-      y: yPosition,
-      size: 12,
-      font: font,
-      color: rgb(0, 0, 0),
-    });
-    yPosition -= 20;
-
-    page.drawText("Orderbekräftelsen skickas automatiskt till er e-postadress.", {
-      x: 50,
-      y: yPosition,
-      size: 12,
-      font: font,
-      color: rgb(0, 0, 0),
-    });
-
-    // Generera PDF
-    const pdfBytes = await pdfDoc.save();
+    // Skapa PDF för orderbekräftelse med gemensam mall
+    
+    const orderData = {
+      customerId: body.customerId,
+      title: 'Orderbekräftelse',
+      amount: offer.amount || 0,
+      currency: offer.currency || 'SEK',
+      needsPrint: false,
+      data: { 
+        offerId: body.offerId,
+        customerName: customer.companyName || customer.name,
+        orderNumber: 'ORD-' + Date.now(),
+        items: offer.data?.items || [],
+        totalAmount: offer.amount || 0,
+        deliveryDate: offer.data?.deliveryDate,
+        deliveryAddress: customer.address,
+        paymentTerms: offer.data?.paymentTerms || '30 dagar netto',
+        phone: customer.phone,
+        email: customer.email
+      }
+    };
+    
+    const pdfBytes = await buildDocument(orderData, 'orderConfirmation');
 
     // Ladda upp till Supabase Storage
     const bucket = "paperflow-files";
