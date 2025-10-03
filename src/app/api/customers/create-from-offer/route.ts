@@ -1,9 +1,15 @@
-import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseServer";
+import { NextResponse } from 'next/server';
+import { supabaseAdmin as admin } from '@/lib/supabaseServer';
+import buildDocument from '@/lib/pdf/buildDocument';
 
-function bad(msg: string, code = 400) {
-  return NextResponse.json({ ok: false, error: msg }, { status: code });
+function err(where: string, message: string, status = 500) {
+  console.error(`[${where}]`, message);
+  return NextResponse.json({ ok: false, where, message }, { status });
 }
+
+// ← Byt detta ENDA ORD om din offert använder en annan bucket.
+// Av dina loggar (“Downloading offer from: offers/...”) verkar bucketen heta 'offers'.
+const BUCKET = 'offers';
 
 interface Customer {
   id: string;
@@ -15,63 +21,46 @@ interface Customer {
   zip?: string;
   city?: string;
   country?: string;
-  [key: string]: any; // tillåt extra fält om de finns i databasen
+  [k: string]: any;
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { offer } = body;
+    const offer = body?.offer;
 
-    if (!offer) return bad("Missing offer data");
+    if (!offer) return err('validate', 'Missing offer data', 400);
+    if (!offer.email) return err('validate', 'Missing customer email in offer', 400);
 
-    const { email, name } = offer;
-    if (!email) return bad("Missing customer email in offer");
+    // 1) Hämta/korrigera kund
+    const { data: customers, error: fetchErr } = await admin
+      .from('customers')
+      .select('*')
+      .eq('email', offer.email);
 
-    // Hämta kunder som matchar e-post
-    const { data: customers, error: customersError } = await supabaseAdmin
-      .from("customers")
-      .select("*")
-      .eq("email", email);
-
-    if (customersError) {
-      return bad(`Failed to fetch customers: ${customersError.message}`, 500);
-    }
+    if (fetchErr) return err('fetchCustomers', fetchErr.message);
 
     let customerId: string | null = null;
-    let customerCreated = false;
+    const existing: Customer | undefined = customers?.find((c) => c.email === offer.email);
 
-    // Om kunden redan finns
-    const existingCustomer: Customer | undefined = customers?.find(
-      (c: Customer) => c.email === email
-    );
-
-    if (existingCustomer) {
-      // Använd befintlig kund
-      customerId = existingCustomer.id;
-      customerCreated = false;
-
-      // Uppdatera befintlig kund med ny offertdata (om något har ändrats)
-      const { error: updateError } = await supabaseAdmin
-        .from("customers")
+    if (existing) {
+      customerId = existing.id;
+      // tyst uppdatering
+      await admin
+        .from('customers')
         .update({
-          name: offer.name ?? existingCustomer.name,
-          phone: offer.phone ?? existingCustomer.phone,
-          orgnr: offer.orgnr ?? existingCustomer.orgnr,
-          address: offer.address ?? existingCustomer.address,
-          zip: offer.zip ?? existingCustomer.zip,
-          city: offer.city ?? existingCustomer.city,
-          country: offer.country ?? existingCustomer.country,
+          name: offer.name ?? existing.name,
+          phone: offer.phone ?? existing.phone,
+          orgnr: offer.orgnr ?? existing.orgnr,
+          address: offer.address ?? existing.address,
+          zip: offer.zip ?? existing.zip,
+          city: offer.city ?? existing.city,
+          country: offer.country ?? existing.country,
         })
-        .eq("id", existingCustomer.id);
-
-      if (updateError) {
-        console.warn("Failed to update customer:", updateError.message);
-      }
+        .eq('id', existing.id);
     } else {
-      // Skapa ny kund
-      const { data: newCustomer, error: insertError } = await supabaseAdmin
-        .from("customers")
+      const { data: created, error: insertErr } = await admin
+        .from('customers')
         .insert([
           {
             name: offer.name,
@@ -87,23 +76,53 @@ export async function POST(req: Request) {
         .select()
         .single();
 
-      if (insertError) {
-        return bad(`Failed to create customer: ${insertError.message}`, 500);
-      }
-
-      customerId = newCustomer.id;
-      customerCreated = true;
+      if (insertErr) return err('createCustomer', insertErr.message);
+      customerId = created!.id;
     }
 
-    return NextResponse.json(
+    if (!customerId) return err('invariant', 'customerId saknas efter upsert');
+
+    // 2) Bygg ORDERBEKRÄFTELSE som riktig PDF (samma mall som Offert – endast rubriken skiljer)
+    const bytes = await buildDocument(
       {
-        ok: true,
         customerId,
-        customerCreated,
+        title: 'Orderbekräftelse',
+        amount: Number(offer.amount ?? 0),
+        currency: String(offer.currency ?? 'SEK'),
+        needsPrint: Boolean(offer.needsPrint ?? false),
+        data: {
+          customerName: offer.companyName ?? offer.name ?? '',
+          customerAddress: offer.address ?? '',
+          customerPhone: offer.phone ?? '',
+          customerEmail: offer.email ?? '',
+          orderNumber: `ORD-${Date.now()}`,
+          orderDate: new Date().toLocaleDateString('sv-SE'),
+          source: 'order-from-offer',
+          ...offer,
+        },
       },
-      { status: 200 }
+      'orderConfirmation'
     );
+
+    console.log('[create-order] pdf bytes length =', bytes?.length);
+    if (!bytes || bytes.length < 1000) return err('buildPdf', 'PDF blev för liten');
+
+    // 3) Ladda upp som **PDF-Blob** till samma bucket som offerten
+    const fileName = `${Date.now()}-order.pdf`;
+    const filePath = `orders/${customerId}/${fileName}`;
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+
+    const { error: upErr } = await admin
+      .storage
+      .from(BUCKET)
+      .upload(filePath, blob, { contentType: 'application/pdf', upsert: true });
+
+    if (upErr) return err('upload', upErr.message, upErr.statusCode ?? 500);
+
+    // 4) ⛔️ Ingen createSignedUrl här — returnera bara path & bucket
+    console.log('[createOrder] uploaded path =', filePath, 'bucket =', BUCKET);
+    return NextResponse.json({ ok: true, path: filePath, bucket: BUCKET, customerId }, { status: 200 });
   } catch (e: any) {
-    return bad(e?.message ?? "Unknown error", 500);
+    return err('createOrder', String(e?.message || e));
   }
 }

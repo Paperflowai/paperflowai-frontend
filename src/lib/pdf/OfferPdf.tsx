@@ -1,4 +1,4 @@
-import React from 'react';
+import * as React from 'react';
 import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
 
 // Define the OfferData type
@@ -82,20 +82,22 @@ const styles = StyleSheet.create({
 // Define the OfferPdf component
 interface OfferPdfProps {
   data: OfferData;
+  variant?: 'offer' | 'orderConfirmation';
   logoUrl?: string;
   rotImageUrl?: string;
 }
 
-const OfferPdf: React.FC<OfferPdfProps> = ({ data, logoUrl, rotImageUrl }) => {
+const OfferPdf: React.FC<OfferPdfProps> = ({ data, variant = 'offer', logoUrl, rotImageUrl }) => {
   const currentDate = new Date().toLocaleDateString('sv-SE');
   const validTill = data.validTill || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('sv-SE');
+  const title = variant === 'orderConfirmation' ? 'ORDERBEKRÄFTELSE' : 'OFFERT';
 
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         {/* Header */}
         <View style={styles.header}>
-          <Text>OFFERT</Text>
+          <Text>{title}</Text>
         </View>
 
         {/* Logo if provided */}

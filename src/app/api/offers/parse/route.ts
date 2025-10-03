@@ -1,10 +1,9 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
-import { extractOfferFields } from "@/utils/extractOfferFields";
-import pdf from 'pdf-parse';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+import { extractOfferFields } from '@/utils/extractOfferFields';
 
 function supa() {
   const jar = cookies();
@@ -15,53 +14,61 @@ function supa() {
       cookies: {
         get: (n) => jar.get(n)?.value,
         set: (n, v, o) => jar.set({ name: n, value: v, ...o }),
-        remove: (n, o) => jar.set({ name: n, value: "", ...o, expires: new Date(0) }),
+        remove: (n, o) =>
+          jar.set({ name: n, value: '', ...o, expires: new Date(0) }),
       },
     }
   );
 }
 
+// Ladda pdf-parse dynamiskt (för att undvika att Next bundlar deras testfil)
 async function extractTextFromPDF(pdfBuffer: ArrayBuffer): Promise<string> {
   try {
+    const { default: pdf } = await import('pdf-parse'); // <-- dynamisk import
     const data = await pdf(Buffer.from(pdfBuffer));
-    return data.text;
+    return data.text || '';
   } catch (err) {
-    console.warn("PDF text extraction failed:", err);
-    return "";
+    console.warn('[offers/parse] PDF text extraction failed:', err);
+    return '';
   }
+}
+
+function bad(where: string, message: string, status = 400) {
+  console.error(`[offers/parse][${where}]`, message);
+  return Response.json({ ok: false, where, message }, { status });
 }
 
 export async function POST(req: Request) {
   try {
     const { bucket, path } = await req.json();
-    
+
     if (!bucket || !path) {
-      return new Response('Missing bucket or path', { status: 400 });
+      return bad('validate', 'Missing bucket or path', 400);
     }
 
     const supabase = supa();
 
-    // Download PDF from Storage
+    // 1) Ladda ner PDF från Storage (ingen lokal testfil!)
     const { data: pdfFile, error: downloadError } = await supabase.storage
       .from(bucket)
       .download(path);
 
     if (downloadError || !pdfFile) {
-      return new Response('Failed to download PDF from storage', { status: 500 });
+      return bad('download', downloadError?.message || 'Failed to download PDF from storage', 500);
     }
 
-    // Extract text from PDF
+    // 2) Extrahera text
     const pdfBuffer = await pdfFile.arrayBuffer();
     const text = await extractTextFromPDF(pdfBuffer);
 
-    if (!text || text.trim().length === 0) {
-      return new Response('No text found in PDF (scanned image?)', { status: 400 });
+    if (!text.trim()) {
+      return bad('extract', 'No text found in PDF (scanned image?)', 400);
     }
 
-    // Parse offer fields using the comprehensive parser
+    // 3) Tolka fält
     const extracted = extractOfferFields(text);
 
-    // Transform to match frontend expectations
+    // 4) Mappa till frontendens förväntade format (parsed.customer / parsed.lines / ...)
     const customer = {
       companyName: extracted.companyName,
       contactPerson: extracted.contactPerson,
@@ -74,34 +81,48 @@ export async function POST(req: Request) {
       country: extracted.country,
     };
 
-    // Transform items to match frontend format
-    const lines = extracted.items?.map(item => ({
-      text: item.name,
-      qty: item.hours ? parseFloat(item.hours) : 1,
-      price: item.pricePerHour ? parseFloat(item.pricePerHour.replace(/[^\d.-]/g, '')) : 0,
-      amount: item.total ? parseFloat(item.total.replace(/[^\d.-]/g, '')) : 0,
-    })) || [];
+    const lines =
+      extracted.items?.map((item) => ({
+        text: item.name,
+        qty: item.hours ? parseFloat(item.hours) : 1,
+        price: item.pricePerHour
+          ? parseFloat(item.pricePerHour.replace(/[^\d.-]/g, ''))
+          : 0,
+        amount: item.total
+          ? parseFloat(item.total.replace(/[^\d.-]/g, ''))
+          : 0,
+      })) || [];
 
     const totals = {
-      net: extracted.total ? parseFloat(extracted.total.replace(/[^\d.-]/g, '')) : 0,
+      net: extracted.total
+        ? parseFloat(extracted.total.replace(/[^\d.-]/g, ''))
+        : 0,
       vat: extracted.vat ? parseFloat(extracted.vat) : 25,
-      gross: extracted.vatAmount ? parseFloat(extracted.vatAmount.replace(/[^\d.-]/g, '')) : 0,
+      gross: extracted.vatAmount
+        ? parseFloat(extracted.vatAmount.replace(/[^\d.-]/g, ''))
+        : 0,
     };
 
-    return Response.json({
-      customer,
-      lines,
-      totals,
-      metadata: {
-        offerNumber: extracted.offerNumber,
-        date: extracted.date,
-        validity: extracted.validity,
-        notes: extracted.notes,
-      }
-    });
+    const metadata = {
+      offerNumber: extracted.offerNumber,
+      date: extracted.date,
+      validity: extracted.validity,
+      notes: extracted.notes,
+    };
 
+    return Response.json(
+      { ok: true, parsed: { customer, lines, totals, metadata } },
+      { status: 200 }
+    );
   } catch (error) {
-    console.error('Offer parsing error:', error);
-    return new Response(`Server error: ${error instanceof Error ? error.message : String(error)}`, { status: 500 });
+    console.error('[offers/parse] Server error:', error);
+    return Response.json(
+      {
+        ok: false,
+        where: 'exception',
+        message: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
   }
 }

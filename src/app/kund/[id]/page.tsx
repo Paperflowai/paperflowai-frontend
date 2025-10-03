@@ -9,7 +9,7 @@ import OfferRealtime from "./OfferRealtime";
 import { CheckCircle, XCircle, Send, FilePlus, FileText } from 'lucide-react';
 import { defaultFlow, FlowStatus, loadFlowStatus, upsertFlowStatus } from "@/lib/flowStatus";
 import { supabase } from "@/lib/supabaseClient";
-import { BUCKET_DOCS } from "@/lib/storage";
+import { BUCKET_DOCS, OFFER_BUCKET } from "@/lib/storage";
 
 type DocFile = { name: string; url: string };
 type BkFile = { name: string; url: string; type: "image" | "pdf" };
@@ -149,8 +149,16 @@ export default function KundDetaljsida() {
         body: JSON.stringify({ customerId, offerPath: (await ensureOfferPath()).path, bucket: BUCKET_DOCS }),
       });
       if (!res.ok) throw new Error(await res.text());
-      const { url } = await res.json();
-      setOrderPdfUrl(url);
+      const json = await res.json();
+      if (json?.ok && json?.path && json?.bucket) {
+        const { data: pdfBlob, error } = await supabase.storage.from(json.bucket).download(json.path);
+        if (!error && pdfBlob) {
+          const url = URL.createObjectURL(pdfBlob);
+          setOrderPdfUrl((old) => { if (old) URL.revokeObjectURL(old); return url; });
+          console.log('[order] blob url:', url);
+          (window as any)._lastOrderUrl = url; // för snabb test i konsolen
+        }
+      }
       await save({ orderCreated: true });
     } catch (e: any) {
       console.error(e);
@@ -825,13 +833,13 @@ export default function KundDetaljsida() {
           // Save storage path and create preview URL
           setOfferPath(uploadData.path);
           
-          const { data: signed } = await supabase.storage
-            .from(BUCKET_DOCS)
-            .createSignedUrl(uploadData.path, 60 * 60);
-          
-          // Update the offer state with the signed URL
-          const newFile = { name: uploaded.name, url: signed?.signedUrl ?? '' };
-          setOffert(newFile);
+          // Update the offer state with blob URL
+          const { data: pdfBlob, error } = await supabase.storage.from(BUCKET_DOCS).download(uploadData.path);
+          if (!error && pdfBlob) {
+            const url = URL.createObjectURL(pdfBlob);
+            const newFile = { name: uploaded.name, url };
+            setOffert(newFile);
+          }
 
           // Save document record in database
           const { error: docError } = await supabase
@@ -856,27 +864,27 @@ export default function KundDetaljsida() {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               credentials: 'include',
-              body: JSON.stringify({ bucket: BUCKET_DOCS, path: uploadData.path })
+              body: JSON.stringify({ bucket: OFFER_BUCKET, path: uploadData.path })
             });
             
             if (resp.ok) {
-              const parsed = await resp.json();
+              const json = await resp.json();
               
               // Update customer data with parsed data
-              const updated = { ...data, ...parsed.customer };
+              const updated = { ...data, ...json.parsed.customer };
               setData(updated);
               persistData(updated);
               
               // Save to database
               const { error: updateError } = await supabase
                 .from('customers')
-                .update(parsed.customer)
+                .update(json.parsed.customer)
                 .eq('id', customerId);
               
               if (updateError) {
                 console.error('Customer update error:', updateError);
               } else {
-                console.log("Autofyllda fält från server:", parsed.customer);
+                console.log("Autofyllda fält från server:", json.parsed.customer);
               }
             } else {
               const errorText = await resp.text();
@@ -1334,17 +1342,23 @@ export default function KundDetaljsida() {
         
         {/* Order PDF Preview */}
         {orderPdfUrl ? (
-          <div className="mt-2">
-            <iframe 
-              src={orderPdfUrl} 
-              className="w-full h-[420px] rounded border" 
-              title="Orderbekräftelse PDF"
-            />
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm text-blue-600">📎 Orderbekräftelse</p>
+              <button
+                onClick={() => {
+                  setOrderPdfUrl(null);
+                  save({ orderCreated: false });
+                }}
+                className="text-red-600 text-sm font-semibold hover:underline"
+              >
+                🗑️ Ta bort
+              </button>
+            </div>
+            <embed src={orderPdfUrl} type="application/pdf" style={{ width:'100%', height:600 }} />
           </div>
         ) : (
-          <div className="mt-2 text-sm text-gray-500">
-            Ingen orderbekräftelse skapad ännu.
-          </div>
+          <div>Ingen orderbekräftelse skapad ännu.</div>
         )}
         
         {/* ORDER – knapprad, alltid synlig */}

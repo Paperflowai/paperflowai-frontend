@@ -1,178 +1,112 @@
 export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+import { supabaseAdmin as admin } from '@/lib/supabaseServer';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
-import { createClient } from '@supabase/supabase-js';
-import { buildDocument } from '@/lib/pdf/buildDocument';
+/**
+ * Justerbara värden för rubrikens position/utseende.
+ * Behöver rubriken flyttas: ändra bara STAMP_Y (större = högre upp, mindre = längre ned).
+ */
+const STAMP_ON = true;       // slå av/på stämpeln vid felsökning
+const STAMP_Y = 672;         // var 655 – aningen upp för att linjera bättre
+const STAMP_HEIGHT = 38;     // var 34 – högre banderoll så gamla "OFFERT" aldrig skymtar
+const STAMP_LEFT = 60;       // samma som offerten
+const STAMP_RIGHT = 60;      // samma som offerten
+const STAMP_TEXT = 'ORDERBEKRÄFTELSE';
+const STAMP_SIZE = 14;       // var 12 – något större så rubriken matchar offerten bättre
 
-const admin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // server-key
-);
+async function stampOrderHeader(src: Uint8Array): Promise<Uint8Array> {
+  if (!STAMP_ON) return src;
 
-// Validering av indata
-interface OrderRequest {
-  customerId: string;
-  offerPath: string;
-  bucket: string;
-}
+  const doc = await PDFDocument.load(src);
+  const pages = doc.getPages();
+  if (!pages.length) return src;
 
-function validateOrderRequest(data: any): OrderRequest {
-  if (!data) {
-    throw new Error('Request body is required');
-  }
-  
-  if (!data.customerId || typeof data.customerId !== 'string') {
-    throw new Error('customerId is required and must be a string');
-  }
-  
-  if (!data.offerPath || typeof data.offerPath !== 'string') {
-    throw new Error('offerPath is required and must be a string');
-  }
-  
-  if (!data.bucket || typeof data.bucket !== 'string') {
-    throw new Error('bucket is required and must be a string');
-  }
-  
-  return data as OrderRequest;
-}
+  const page = pages[0];
+  const { width } = page.getSize();
+  const helv = await doc.embedFont(StandardFonts.Helvetica);
+  const helvBold = await doc.embedFont(StandardFonts.HelveticaBold);
 
-// Hjälpfunktion för att logga fel
-function logError(context: string, error: any) {
-  console.error(`[${context}] Error:`, {
-    name: error?.name || 'Unknown',
-    message: error?.message || 'No message',
-    stack: error?.stack || 'No stack trace'
+  // 1) Vit banderoll som täcker den gamla rubriken
+  page.drawRectangle({
+    x: STAMP_LEFT,
+    y: STAMP_Y - 6,
+    width: width - (STAMP_LEFT + STAMP_RIGHT),
+    height: STAMP_HEIGHT,
+    color: rgb(1, 1, 1),
   });
-}
 
-// Hjälpfunktion för att returnera fel
-function errorResponse(context: string, message: string, status = 500) {
-  return Response.json(
-    { ok: false, where: context, message },
-    { status }
-  );
+  // 2) Ny rubrik
+  page.drawText(STAMP_TEXT, {
+    x: STAMP_LEFT,
+    y: STAMP_Y,
+    size: STAMP_SIZE,
+    font: helvBold,
+    color: rgb(0, 0, 0),
+  });
+
+  // 3) Datumrad i ljusgrått under (frivilligt)
+  page.drawText(new Date().toLocaleDateString('sv-SE'), {
+    x: STAMP_LEFT,
+    y: STAMP_Y - 16,
+    size: 9,
+    font: helv,
+    color: rgb(0.4, 0.4, 0.4),
+  });
+
+  return doc.save();
 }
 
 export async function POST(req: Request) {
   try {
-    // 1) Validera indata
-    const rawData = await req.json();
-    console.log('[createOrder] Input keys:', Object.keys(rawData));
-    
-    const { customerId, offerPath, bucket } = validateOrderRequest(rawData);
-    
-    // 2) Hämta offertdata från Storage för att extrahera riktig data
-    console.log('[createOrder] Downloading offer from:', `${bucket}/${offerPath}`);
-    const dl = await admin.storage.from(bucket).download(offerPath);
-    
-    if (dl.error) {
-      logError('downloadOffer', dl.error);
-      return errorResponse('downloadOffer', `Failed to download offer: ${dl.error.message}`, 404);
-    }
-    
-    if (!dl.data) {
-      return errorResponse('downloadOffer', 'Offer file not found', 404);
+    const body = await req.json().catch(() => ({} as any));
+    const customerId: string | undefined = body?.customerId;
+    const offerPath: string | undefined = body?.offerPath;
+    const bucketName: string = body?.bucket || 'paperflow-files';
+
+    if (!customerId || !offerPath) {
+      return Response.json(
+        { ok: false, where: 'input', message: 'customerId och offerPath krävs' },
+        { status: 400 }
+      );
     }
 
-    // 3) Hämta kunddata från databasen för komplett orderdata
-    console.log('[createOrder] Fetching customer data for:', customerId);
-    const { data: customer, error: customerError } = await admin
-      .from('customers')
-      .select('*')
-      .eq('id', customerId)
-      .single();
-
-    if (customerError) {
-      logError('fetchCustomer', customerError);
-      return errorResponse('fetchCustomer', `Failed to fetch customer: ${customerError.message}`, 404);
-    }
-
-    if (!customer) {
-      return errorResponse('fetchCustomer', 'Customer not found', 404);
-    }
-
-    // 4) Förbered orderdata med riktig kundinformation
-    const orderData = {
-      customerId,
-      title: 'Orderbekräftelse',
-      amount: customer.amount || 0,
-      currency: customer.currency || 'SEK',
-      needsPrint: false,
-      data: {
-        customerName: customer.companyName || customer.name || 'Okänd kund',
-        customerAddress: customer.address || '',
-        customerPhone: customer.phone || '',
-        customerEmail: customer.email || '',
-        orderNumber: `ORD-${Date.now()}`,
-        orderDate: new Date().toLocaleDateString('sv-SE'),
-        source: 'order-from-offer',
-        offerPath
-      }
-    };
-
-    console.log('[createOrder] Order data prepared:', Object.keys(orderData.data));
-
-    // 5) Generera ORDERBEKRÄFTELSE från gemensam mall
-    console.log('[createOrder] Generating PDF with orderConfirmation variant');
-    const pdfBytes = await buildDocument(orderData, 'orderConfirmation');
-
-    // 6) Ladda upp till Storage
     const destPath = `orders/${customerId}/${Date.now()}-order.pdf`;
-    console.log('[createOrder] Uploading to:', destPath);
-    
-    const uploadResult = await admin.storage.from(bucket).upload(destPath, pdfBytes, {
-      contentType: 'application/pdf',
-      upsert: true
-    });
 
-    if (uploadResult.error) {
-      logError('uploadOrder', uploadResult.error);
-      return errorResponse('uploadOrder', `Failed to upload order PDF: ${uploadResult.error.message}`, 500);
+    // 1) Ladda ner offert-PDF (samma layout som originalet)
+    const { data: srcFile, error: dlErr } = await admin.storage.from(bucketName).download(offerPath);
+    if (dlErr || !srcFile) {
+      return Response.json(
+        { ok: false, where: 'download', message: dlErr?.message || 'Kunde inte hämta offert-PDF' },
+        { status: 500 }
+      );
     }
 
-    // 7) Spara rad i documents tabellen (isolera DB-felet)
-    console.log('[createOrder] Inserting into documents table');
-    const { error: docError } = await admin
-      .from('documents')
-      .insert({
-        customer_id: customerId,
-        doc_type: 'order',
-        storage_path: destPath,
-        filename: `order-${customerId}-${Date.now()}.pdf`,
-        version: 1,
-        created_at: new Date().toISOString()
-      });
-
-    if (docError) {
-      logError('insertDocument', docError);
-      // Fortsätt ändå - PDF är redan uppladdad
-      console.warn('[createOrder] Document insert failed but continuing:', docError.message);
+    const arr = await srcFile.arrayBuffer();
+    let bytes = new Uint8Array(arr);
+    if (!bytes || bytes.length < 1000) {
+      return Response.json(
+        { ok: false, where: 'download', message: `Fil för liten (${bytes?.length || 0} bytes)` },
+        { status: 500 }
+      );
     }
 
-    // 8) Skapa signed URL för förhandsvisning
-    console.log('[createOrder] Creating signed URL');
-    const { data: signedUrl, error: urlError } = await admin.storage
-      .from(bucket)
-      .createSignedUrl(destPath, 60 * 60); // 1 timme
+    // 2) Stämpla rubriken (endast rubriken byts – layouten i övrigt är identisk)
+    bytes = await stampOrderHeader(bytes);
 
-    if (urlError) {
-      logError('createSignedUrl', urlError);
-      return errorResponse('createSignedUrl', `Failed to create signed URL: ${urlError.message}`, 500);
+    // 3) Ladda upp som order-PDF
+    const { error: upErr } = await admin.storage
+      .from(bucketName)
+      .upload(destPath, bytes, { contentType: 'application/pdf', upsert: true });
+
+    if (upErr) {
+      return Response.json({ ok: false, where: 'upload', message: upErr.message }, { status: 500 });
     }
 
-    if (!signedUrl?.signedUrl) {
-      return errorResponse('createSignedUrl', 'No signed URL returned', 500);
-    }
-
-    console.log('[createOrder] Success - order created');
-    return Response.json({ 
-      ok: true, 
-      url: signedUrl.signedUrl,
-      orderId: `order-${customerId}-${Date.now()}`
-    });
-
-  } catch (error: any) {
-    logError('createOrder', error);
-    return errorResponse('createOrder', error.message, 500);
+    console.log('[createOrder] uploaded stamped order =', destPath, 'bucket =', bucketName);
+    // UI hämtar sedan som blob och visar (ingen signed URL).
+    return Response.json({ ok: true, path: destPath, bucket: bucketName }, { status: 200 });
+  } catch (e: any) {
+    console.error('[createOrder] exception:', e);
+    return Response.json({ ok: false, where: 'exception', message: String(e?.message || e) }, { status: 500 });
   }
 }
