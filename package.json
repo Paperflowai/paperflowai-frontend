@@ -26,7 +26,8 @@
     "pdfjs-dist": "^5.4.54",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "resend": "^4.8.0"
+    "resend": "^4.8.0",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
