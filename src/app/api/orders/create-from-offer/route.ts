@@ -1,24 +1,27 @@
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+import { NextResponse } from 'next/server';
 import { supabaseAdmin as admin } from '@/lib/supabaseServer';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
-/**
- * Justerbara värden – funkar för båda dina offerter.
- * Finlir:
- *  - Flytta upp/ner: STAMP_Y ± 5–10
- *  - Mer täckning:   höj STAMP_HEIGHT (t.ex. 80)
- *  - Mer logga-lucka: öka LOGO_GAP_HALF (t.ex. 120–140)
- */
+function json(data: any, status = 200) {
+  return NextResponse.json(data, { status });
+}
+
+// ✅ Ping för snabb felsökning i browsern
+export async function GET() {
+  return json({ ok: true, ping: 'orders/create-from-offer' });
+}
+
+/** —— Stämpelinställningar —— */
 const STAMP_ON = true;
-const STAMP_Y = 610;
-const STAMP_HEIGHT = 72;
+const STAMP_Y = 615;
+const STAMP_HEIGHT = 38;
 const STAMP_LEFT = 76;
 const STAMP_RIGHT = 60;
 const STAMP_TEXT = 'ORDERBEKRÄFTELSE';
 const STAMP_SIZE = 18;
-
-// Lucka runt loggan i mitten (halva gapbredden)
-const LOGO_GAP_HALF = 110;
 
 async function stampOrderHeader(src: Uint8Array): Promise<Uint8Array> {
   if (!STAMP_ON) return src;
@@ -31,25 +34,11 @@ async function stampOrderHeader(src: Uint8Array): Promise<Uint8Array> {
   const { width } = page.getSize();
   const helvBold = await doc.embedFont(StandardFonts.HelveticaBold);
 
-  // --- Vit banderoll i två delar, lämnar lucka kring loggans mitt ---
-  const centerX = width / 2;
-  const gapL = centerX - LOGO_GAP_HALF;
-  const gapR = centerX + LOGO_GAP_HALF;
-
-  // Vänster del
+  // Vit banderoll över gamla rubriken
   page.drawRectangle({
     x: STAMP_LEFT,
     y: STAMP_Y - 6,
-    width: Math.max(0, gapL - STAMP_LEFT),
-    height: STAMP_HEIGHT,
-    color: rgb(1, 1, 1),
-  });
-
-  // Höger del
-  page.drawRectangle({
-    x: gapR,
-    y: STAMP_Y - 6,
-    width: Math.max(0, width - STAMP_RIGHT - gapR),
+    width: width - (STAMP_LEFT + STAMP_RIGHT),
     height: STAMP_HEIGHT,
     color: rgb(1, 1, 1),
   });
@@ -74,48 +63,52 @@ export async function POST(req: Request) {
     const bucketName: string = body?.bucket || 'paperflow-files';
 
     if (!customerId || !offerPath) {
-      return Response.json(
-        { ok: false, where: 'input', message: 'customerId och offerPath krävs' },
-        { status: 400 }
-      );
+      return json({ ok: false, where: 'input', message: 'customerId och offerPath krävs' }, 400);
     }
 
-    const destPath = `orders/${customerId}/${Date.now()}-order.pdf`;
-
-    // 1) Hämta käll-PDF (offerten)
+    // 1) Hämta offert-PDF från Storage
+    console.log('[create-order] download', { bucketName, offerPath });
     const { data: srcFile, error: dlErr } = await admin.storage.from(bucketName).download(offerPath);
     if (dlErr || !srcFile) {
-      return Response.json(
-        { ok: false, where: 'download', message: dlErr?.message || 'Kunde inte hämta offert-PDF' },
-        { status: 500 }
-      );
+      console.error('[create-order] download error:', dlErr);
+      return json({ ok: false, where: 'download', message: dlErr?.message || 'Kunde inte hämta offert-PDF' }, 500);
     }
 
-    const arr = await srcFile.arrayBuffer();
-    let bytes = new Uint8Array(arr);
-    if (!bytes || bytes.length < 1000) {
-      return Response.json(
-        { ok: false, where: 'download', message: `Fil för liten (${bytes?.length || 0} bytes)` },
-        { status: 500 }
-      );
+    const srcBytes = new Uint8Array(await srcFile.arrayBuffer());
+    if (!srcBytes.length) {
+      return json({ ok: false, where: 'download', message: 'Tom fil vid nedladdning' }, 500);
     }
 
-    // 2) Stämpla endast rubriken
-    bytes = await stampOrderHeader(bytes);
+    // 2) Stämpla rubriken
+    const stamped = await stampOrderHeader(srcBytes);
 
     // 3) Ladda upp som order-PDF
+    const destPath = `orders/${customerId}/${Date.now()}-order.pdf`;
     const { error: upErr } = await admin.storage
       .from(bucketName)
-      .upload(destPath, bytes, { contentType: 'application/pdf', upsert: true });
+      .upload(destPath, stamped, { contentType: 'application/pdf', upsert: true });
 
     if (upErr) {
-      return Response.json({ ok: false, where: 'upload', message: upErr.message }, { status: 500 });
+      console.error('[create-order] upload error:', upErr);
+      return json({ ok: false, where: 'upload', message: upErr.message }, 500);
     }
 
-    console.log('[createOrder] uploaded stamped order =', destPath, 'bucket =', bucketName);
-    return Response.json({ ok: true, path: destPath, bucket: bucketName }, { status: 200 });
-  } catch (e: any) {
-    console.error('[createOrder] exception:', e);
-    return Response.json({ ok: false, where: 'exception', message: String(e?.message || e) }, { status: 500 });
+    // 4) (Valfritt) spara i documents-tabellen för synk
+    const { error: docErr } = await admin
+      .from('documents')
+      .insert({
+        customer_id: customerId,
+        type: 'order',
+        storage_path: destPath,
+        filename: 'order.pdf',
+        created_at: new Date().toISOString(),
+      });
+    if (docErr) console.warn('[create-order] documents insert warn:', docErr.message);
+
+    console.log('[create-order] OK', { destPath, bucketName });
+    return json({ ok: true, path: destPath, bucket: bucketName });
+  } catch (err: any) {
+    console.error('[create-order] exception:', err);
+    return json({ ok: false, where: 'exception', message: err?.message || String(err) }, 500);
   }
 }

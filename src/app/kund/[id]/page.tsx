@@ -309,6 +309,8 @@ if (json?.ok && json?.path && json?.bucket) {
 
     async function restoreDoc(type: "offert" | "order" | "invoice", metaStr: string | null) {
       const key = `${type}_${id}`;
+      
+      // 1) Försök hämta från IndexedDB först
       const blob = await idbGet(key);
       if (blob) {
         const name = metaStr ? (JSON.parse(metaStr).name as string) : `${type}.pdf`;
@@ -318,6 +320,45 @@ if (json?.ok && json?.path && json?.bucket) {
         if (type === "offert") setOffert(file);
         if (type === "order") setOrder(file);
         if (type === "invoice") setInvoice(file);
+        return;
+      }
+
+      // 2) Fallback: hämta senaste från Supabase documents
+      try {
+        const { data: docs, error } = await supabase
+          .from('documents')
+          .select('*')
+          .eq('customer_id', id)
+          .eq('doc_type', type)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (error || !docs?.length) return;
+
+        const doc = docs[0];
+        const { data: file, error: dlError } = await supabase.storage
+          .from(doc.bucket || 'paperflow-files')
+          .download(doc.storage_path);
+
+        if (dlError || !file) return;
+
+        // Skapa blob och spara tillbaka lokalt
+        const pdfBlob = file.type === 'application/pdf' 
+          ? file 
+          : new Blob([file], { type: 'application/pdf' });
+        
+        await idbSet(key, pdfBlob);
+        
+        const name = doc.filename || `${type}.pdf`;
+        const url = URL.createObjectURL(pdfBlob);
+        objectUrlsRef.current.push(url);
+        const fileObj = { name, url };
+        
+        if (type === "offert") setOffert(fileObj);
+        if (type === "order") setOrder(fileObj);
+        if (type === "invoice") setInvoice(fileObj);
+      } catch (e) {
+        console.warn(`[restoreDoc] Failed to restore ${type} from Supabase:`, e);
       }
     }
 
@@ -859,7 +900,7 @@ if (json?.ok && json?.path && json?.bucket) {
           const { data: pdfBlob, error } = await supabase.storage.from(BUCKET_DOCS).download(uploadData.path);
           if (!error && pdfBlob) {
             const url = URL.createObjectURL(pdfBlob);
-            const newFile = { name: uploaded.name, url };
+      const newFile = { name: uploaded.name, url };
             setOffert(newFile);
           }
 
@@ -913,11 +954,11 @@ if (json?.ok && json?.path && json?.bucket) {
               console.warn("Parse API failed:", errorText);
               
               // Fallback to local parsing
-              const text = await extractTextFromPDF(uploaded);
-              if (text && text.trim().length > 0) {
-                const mapped = parseFieldsFromText(text, uploaded.name);
-                const updated = { ...data, ...mapped };
-                persistData(updated);
+        const text = await extractTextFromPDF(uploaded);
+        if (text && text.trim().length > 0) {
+          const mapped = parseFieldsFromText(text, uploaded.name);
+          const updated = { ...data, ...mapped };
+          persistData(updated);
                 console.log("Autofyllda fält (fallback):", mapped);
               }
             }
@@ -941,6 +982,25 @@ if (json?.ok && json?.path && json?.bucket) {
       const newFile = { name: uploaded.name, url };
       if (type === "order") setOrder(newFile);
       if (type === "invoice") setInvoice(newFile);
+      
+      // Spara faktura i documents tabellen för synk
+      if (type === "invoice") {
+        try {
+          const fileName = `${Date.now()}-faktura.pdf`;
+          const storagePath = `invoices/${id}/${fileName}`;
+          await supabase.from('documents').insert({
+            customer_id: id,
+            doc_type: 'invoice',
+            storage_path: storagePath,
+            filename: fileName,
+            bucket: 'paperflow-files',
+            created_at: new Date().toISOString()
+          });
+          console.log('[handleSpecialUpload] saved invoice to documents table');
+        } catch (docErr) {
+          console.warn('[handleSpecialUpload] documents insert failed:', docErr);
+        }
+      }
       }
 
     } finally {
@@ -1374,8 +1434,8 @@ if (json?.ok && json?.path && json?.bucket) {
         className="text-red-600 text-sm font-semibold hover:underline"
       >
         🗑️ Ta bort
-      </button>
-    </div>
+              </button>
+            </div>
 
     {/* exakt samma mått som offerten */}
     <iframe
@@ -1383,7 +1443,7 @@ if (json?.ok && json?.path && json?.bucket) {
       className="w-full h-96 border rounded"
       title="Order PDF"
     />
-  </div>
+          </div>
 ) : (
   <div>Ingen orderbekräftelse skapad ännu.</div>
 )}
