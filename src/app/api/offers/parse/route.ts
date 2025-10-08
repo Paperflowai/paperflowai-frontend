@@ -5,8 +5,8 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { extractOfferFields } from '@/utils/extractOfferFields';
 
-function supa() {
-  const jar = cookies();
+async function supa() {
+  const jar = await cookies(); // <-- måste awaitas i Next 15
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -21,10 +21,10 @@ function supa() {
   );
 }
 
-// Ladda pdf-parse dynamiskt (för att undvika att Next bundlar deras testfil)
+// Ladda pdf-parse dynamiskt så att Next inte bundlar deras testfil
 async function extractTextFromPDF(pdfBuffer: ArrayBuffer): Promise<string> {
   try {
-    const { default: pdf } = await import('pdf-parse'); // <-- dynamisk import
+    const { default: pdf }: any = await import('pdf-parse');
     const data = await pdf(Buffer.from(pdfBuffer));
     return data.text || '';
   } catch (err) {
@@ -46,15 +46,19 @@ export async function POST(req: Request) {
       return bad('validate', 'Missing bucket or path', 400);
     }
 
-    const supabase = supa();
+    const supabase = await supa();
 
-    // 1) Ladda ner PDF från Storage (ingen lokal testfil!)
+    // 1) Ladda ner PDF från Storage
     const { data: pdfFile, error: downloadError } = await supabase.storage
       .from(bucket)
       .download(path);
 
     if (downloadError || !pdfFile) {
-      return bad('download', downloadError?.message || 'Failed to download PDF from storage', 500);
+      return bad(
+        'download',
+        downloadError?.message || 'Failed to download PDF from storage',
+        500
+      );
     }
 
     // 2) Extrahera text
@@ -68,7 +72,7 @@ export async function POST(req: Request) {
     // 3) Tolka fält
     const extracted = extractOfferFields(text);
 
-    // 4) Mappa till frontendens förväntade format (parsed.customer / parsed.lines / ...)
+    // 4) Mappa till frontendens format
     const customer = {
       companyName: extracted.companyName,
       contactPerson: extracted.contactPerson,

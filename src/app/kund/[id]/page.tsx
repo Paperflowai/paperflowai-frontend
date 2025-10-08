@@ -150,6 +150,28 @@ export default function KundDetaljsida() {
       });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
+      // Fallback: hämta order-PDF som Blob via path/bucket och visa som blob:URL
+if (json?.ok && json?.path && json?.bucket) {
+  const { data: file, error } = await supabase.storage
+    .from(json.bucket)
+    .download(json.path);
+
+  if (error || !file) {
+    console.error('[order] download failed', error?.message);
+  } else {
+    // säkerställ korrekt MIME-typ
+    const pdfBlob = file.type === 'application/pdf'
+      ? file
+      : new Blob([file], { type: 'application/pdf' });
+
+    console.log('[order] blob size,type =', pdfBlob.size, pdfBlob.type);
+    const url = URL.createObjectURL(pdfBlob);
+    setOrderPdfUrl(prev => { if (prev) URL.revokeObjectURL(prev); return url; });
+    (window as any)._lastOrderUrl = url; // snabbtest i Console
+    console.log('[order] blob url:', url);
+  }
+  return; // undvik att köra ev. gammal kod under
+}
       if (json?.ok && json?.path && json?.bucket) {
         const { data: pdfBlob, error } = await supabase.storage.from(json.bucket).download(json.path);
         if (!error && pdfBlob) {
@@ -1336,30 +1358,35 @@ export default function KundDetaljsida() {
                 🗑️ Ta bort
               </button>
             </div>
-            <iframe src={order.url} className="w-full h-64 border rounded" title="Order PDF"></iframe>
-            </div>
+                        </div>
         )}
         
-        {/* Order PDF Preview */}
-        {orderPdfUrl ? (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-blue-600">📎 Orderbekräftelse</p>
-              <button
-                onClick={() => {
-                  setOrderPdfUrl(null);
-                  save({ orderCreated: false });
-                }}
-                className="text-red-600 text-sm font-semibold hover:underline"
-              >
-                🗑️ Ta bort
-              </button>
-            </div>
-            <embed src={orderPdfUrl} type="application/pdf" style={{ width:'100%', height:600 }} />
-          </div>
-        ) : (
-          <div>Ingen orderbekräftelse skapad ännu.</div>
-        )}
+   {/* Order PDF Preview */}
+{orderPdfUrl ? (
+  <div className="space-y-2">
+    <div className="flex justify-between items-center">
+      <p className="text-sm text-blue-600">📎 Orderbekräftelse</p>
+      <button
+        onClick={() => {
+          setOrderPdfUrl(null);
+          save({ orderCreated: false });
+        }}
+        className="text-red-600 text-sm font-semibold hover:underline"
+      >
+        🗑️ Ta bort
+      </button>
+    </div>
+
+    {/* exakt samma mått som offerten */}
+    <iframe
+      src={orderPdfUrl + "#toolbar=0"}
+      className="w-full h-96 border rounded"
+      title="Order PDF"
+    />
+  </div>
+) : (
+  <div>Ingen orderbekräftelse skapad ännu.</div>
+)}
         
         {/* ORDER – knapprad, alltid synlig */}
         <div className="flex items-center gap-3 mt-2" data-testid="order-actions">

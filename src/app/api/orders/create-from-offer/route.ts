@@ -3,16 +3,22 @@ import { supabaseAdmin as admin } from '@/lib/supabaseServer';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 /**
- * Justerbara värden för rubrikens position/utseende.
- * Behöver rubriken flyttas: ändra bara STAMP_Y (större = högre upp, mindre = längre ned).
+ * Justerbara värden – funkar för båda dina offerter.
+ * Finlir:
+ *  - Flytta upp/ner: STAMP_Y ± 5–10
+ *  - Mer täckning:   höj STAMP_HEIGHT (t.ex. 80)
+ *  - Mer logga-lucka: öka LOGO_GAP_HALF (t.ex. 120–140)
  */
-const STAMP_ON = true;       // slå av/på stämpeln vid felsökning
-const STAMP_Y = 672;         // var 655 – aningen upp för att linjera bättre
-const STAMP_HEIGHT = 38;     // var 34 – högre banderoll så gamla "OFFERT" aldrig skymtar
-const STAMP_LEFT = 60;       // samma som offerten
-const STAMP_RIGHT = 60;      // samma som offerten
+const STAMP_ON = true;
+const STAMP_Y = 610;
+const STAMP_HEIGHT = 72;
+const STAMP_LEFT = 76;
+const STAMP_RIGHT = 60;
 const STAMP_TEXT = 'ORDERBEKRÄFTELSE';
-const STAMP_SIZE = 14;       // var 12 – något större så rubriken matchar offerten bättre
+const STAMP_SIZE = 18;
+
+// Lucka runt loggan i mitten (halva gapbredden)
+const LOGO_GAP_HALF = 110;
 
 async function stampOrderHeader(src: Uint8Array): Promise<Uint8Array> {
   if (!STAMP_ON) return src;
@@ -23,34 +29,38 @@ async function stampOrderHeader(src: Uint8Array): Promise<Uint8Array> {
 
   const page = pages[0];
   const { width } = page.getSize();
-  const helv = await doc.embedFont(StandardFonts.Helvetica);
   const helvBold = await doc.embedFont(StandardFonts.HelveticaBold);
 
-  // 1) Vit banderoll som täcker den gamla rubriken
+  // --- Vit banderoll i två delar, lämnar lucka kring loggans mitt ---
+  const centerX = width / 2;
+  const gapL = centerX - LOGO_GAP_HALF;
+  const gapR = centerX + LOGO_GAP_HALF;
+
+  // Vänster del
   page.drawRectangle({
     x: STAMP_LEFT,
     y: STAMP_Y - 6,
-    width: width - (STAMP_LEFT + STAMP_RIGHT),
+    width: Math.max(0, gapL - STAMP_LEFT),
     height: STAMP_HEIGHT,
     color: rgb(1, 1, 1),
   });
 
-  // 2) Ny rubrik
+  // Höger del
+  page.drawRectangle({
+    x: gapR,
+    y: STAMP_Y - 6,
+    width: Math.max(0, width - STAMP_RIGHT - gapR),
+    height: STAMP_HEIGHT,
+    color: rgb(1, 1, 1),
+  });
+
+  // Ny rubrik
   page.drawText(STAMP_TEXT, {
     x: STAMP_LEFT,
     y: STAMP_Y,
     size: STAMP_SIZE,
     font: helvBold,
     color: rgb(0, 0, 0),
-  });
-
-  // 3) Datumrad i ljusgrått under (frivilligt)
-  page.drawText(new Date().toLocaleDateString('sv-SE'), {
-    x: STAMP_LEFT,
-    y: STAMP_Y - 16,
-    size: 9,
-    font: helv,
-    color: rgb(0.4, 0.4, 0.4),
   });
 
   return doc.save();
@@ -72,7 +82,7 @@ export async function POST(req: Request) {
 
     const destPath = `orders/${customerId}/${Date.now()}-order.pdf`;
 
-    // 1) Ladda ner offert-PDF (samma layout som originalet)
+    // 1) Hämta käll-PDF (offerten)
     const { data: srcFile, error: dlErr } = await admin.storage.from(bucketName).download(offerPath);
     if (dlErr || !srcFile) {
       return Response.json(
@@ -90,7 +100,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2) Stämpla rubriken (endast rubriken byts – layouten i övrigt är identisk)
+    // 2) Stämpla endast rubriken
     bytes = await stampOrderHeader(bytes);
 
     // 3) Ladda upp som order-PDF
@@ -103,7 +113,6 @@ export async function POST(req: Request) {
     }
 
     console.log('[createOrder] uploaded stamped order =', destPath, 'bucket =', bucketName);
-    // UI hämtar sedan som blob och visar (ingen signed URL).
     return Response.json({ ok: true, path: destPath, bucket: bucketName }, { status: 200 });
   } catch (e: any) {
     console.error('[createOrder] exception:', e);
