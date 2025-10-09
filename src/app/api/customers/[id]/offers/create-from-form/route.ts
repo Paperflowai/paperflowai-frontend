@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin as admin } from "@/lib/supabaseServer";
-// Robust import som funkar oavsett om buildDocument är default- eller named-export
+// Robust import: funkar oavsett om buildDocument exporteras som default eller named
 import * as pdf from "@/lib/pdf/buildDocument";
 const buildDocument = (pdf as any).buildDocument ?? (pdf as any).default;
 
@@ -12,7 +12,7 @@ function err(where: string, message: string, status = 500) {
   return NextResponse.json({ ok: false, where, message }, { status });
 }
 
-// Byt vid behov – enligt loggarna verkar bucketen heta 'offers'.
+// Byt om du använder annan bucket. Av dina loggar verkar den heta 'offers'.
 const BUCKET = "offers";
 
 interface Customer {
@@ -28,7 +28,7 @@ interface Customer {
   [k: string]: any;
 }
 
-// Viktigt: använd "context: any" (INGEN typ som { params: { id: string } })
+// Viktigt för Next 15: använd "context: any" – INTE typad { params: { id: string } }
 export async function POST(req: Request, context: any) {
   try {
     const body = await req.json();
@@ -50,7 +50,6 @@ export async function POST(req: Request, context: any) {
 
     if (existing) {
       customerId = existing.id;
-      // tyst uppdatering av basfält
       await admin
         .from("customers")
         .update({
@@ -112,7 +111,7 @@ export async function POST(req: Request, context: any) {
     console.log("[create-order] pdf bytes length =", bytes?.length);
     if (!bytes || bytes.length < 1000) return err("buildPdf", "PDF blev för liten");
 
-    // 3) Ladda upp PDF till Storage i samma bucket
+    // 3) Ladda upp PDF till Storage
     const fileName = `${Date.now()}-order.pdf`;
     const filePath = `orders/${customerId}/${fileName}`;
     const blob = new Blob([bytes], { type: "application/pdf" });
@@ -123,8 +122,7 @@ export async function POST(req: Request, context: any) {
 
     if (upErr) return err("upload", upErr.message, (upErr as any)?.statusCode ?? 500);
 
-    // 4) Returnera path & bucket (ingen signed URL här)
-    console.log("[createOrder] uploaded path =", filePath, "bucket =", BUCKET);
+    // 4) Returnera path & bucket
     return NextResponse.json({ ok: true, path: filePath, bucket: BUCKET, customerId }, { status: 200 });
   } catch (e: any) {
     return err("createOrder", String(e?.message || e));
