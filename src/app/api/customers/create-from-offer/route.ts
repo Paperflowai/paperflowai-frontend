@@ -1,156 +1,128 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from 'next/server';
+import { supabaseAdmin as admin } from '@/lib/supabaseServer';
+import buildDocument from '@/lib/pdf/buildDocument';
 
-type CreateCustomerFromOfferBody = {
-  offerData: {
-    offerId: string;
-    customerName?: string;
-    amount?: number;
-    currency?: string;
-    items?: any[];
-    date?: string;
-    validUntil?: string;
-  };
-  customerData?: {
-    companyName?: string;
-    orgNr?: string;
-    contactPerson?: string;
-    role?: string;
-    phone?: string;
-    email?: string;
-    address?: string;
-    zip?: string;
-    city?: string;
-    country?: string;
-    notes?: string;
-  };
-};
+function err(where: string, message: string, status = 500) {
+  console.error(`[${where}]`, message);
+  return NextResponse.json({ ok: false, where, message }, { status });
+}
 
-function bad(msg: string, code = 400) {
-  return NextResponse.json({ ok: false, error: msg }, { status: code });
+// ← Byt detta ENDA ORD om din offert använder en annan bucket.
+// Av dina loggar (“Downloading offer from: offers/...”) verkar bucketen heta 'offers'.
+const BUCKET = 'offers';
+
+interface Customer {
+  id: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  orgnr?: string;
+  address?: string;
+  zip?: string;
+  city?: string;
+  country?: string;
+  [k: string]: any;
 }
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as CreateCustomerFromOfferBody;
-    
-    if (!body?.offerData?.offerId) {
-      return bad("Missing offerId");
-    }
+    const body = await req.json();
+    const offer = body?.offer;
 
-    const customerName = body.customerData?.companyName || body.offerData.customerName || "";
-    const customerEmail = body.customerData?.email || "";
-    const customerOrgNr = body.customerData?.orgNr || "";
+    if (!offer) return err('validate', 'Missing offer data', 400);
+    if (!offer.email) return err('validate', 'Missing customer email in offer', 400);
 
-    // Kontrollera om kund redan finns i registret
-    let existingCustomer = null;
-    let customerId = "";
-    let customerCreated = false;
+    // 1) Hämta/korrigera kund
+    const { data: customers, error: fetchErr } = await admin
+      .from('customers')
+      .select('*')
+      .eq('email', offer.email);
 
-    // Simulera sökning i kundregister (i riktig app skulle detta vara databas)
-    // Sök efter matchande företagsnamn, e-post eller org.nr
-    if (customerName || customerEmail || customerOrgNr) {
-      // Här skulle vi söka i databasen efter befintlig kund
-      // För nu returnerar vi null för att simulera att ingen kund hittades
-      existingCustomer = null;
-    }
+    if (fetchErr) return err('fetchCustomers', fetchErr.message);
 
-    if (existingCustomer) {
-      // Använd befintlig kund
-      customerId = existingCustomer.id;
-      customerCreated = false;
-      
-      // Uppdatera befintlig kund med ny offertdata (om något har ändrats)
-      const updatedCustomer = {
-        ...existingCustomer,
-        offers: [...(existingCustomer.offers || []), body.offerData]
-      };
-      
-      const offerData = {
-        customerId: customerId,
-        title: body.offerData.customerName || "Offert",
-        amount: body.offerData.amount || 0,
-        currency: body.offerData.currency || "SEK",
-        dataJson: JSON.stringify({
-          offerId: body.offerData.offerId,
-          items: body.offerData.items || [],
-          date: body.offerData.date,
-          validUntil: body.offerData.validUntil,
-          customerData: body.customerData
+    let customerId: string | null = null;
+    const existing: Customer | undefined = customers?.find((c) => c.email === offer.email);
+
+    if (existing) {
+      customerId = existing.id;
+      // tyst uppdatering
+      await admin
+        .from('customers')
+        .update({
+          name: offer.name ?? existing.name,
+          phone: offer.phone ?? existing.phone,
+          orgnr: offer.orgnr ?? existing.orgnr,
+          address: offer.address ?? existing.address,
+          zip: offer.zip ?? existing.zip,
+          city: offer.city ?? existing.city,
+          country: offer.country ?? existing.country,
         })
-      };
-
-      return NextResponse.json({
-        ok: true,
-        customer: updatedCustomer,
-        offerData: offerData,
-        message: "Offert tillagd till befintlig kund",
-        customerFound: true
-      }, { status: 200 });
-
+        .eq('id', existing.id);
     } else {
-      // Skapa ny kund
-      customerId = Date.now().toString();
-      const customerNumber = `K-${Math.floor(Math.random() * 9000000) + 1000000}`;
-      const today = new Date().toISOString().split('T')[0];
-      customerCreated = true;
+      const { data: created, error: insertErr } = await admin
+        .from('customers')
+        .insert([
+          {
+            name: offer.name,
+            email: offer.email,
+            phone: offer.phone,
+            orgnr: offer.orgnr,
+            address: offer.address,
+            zip: offer.zip,
+            city: offer.city,
+            country: offer.country,
+          },
+        ])
+        .select()
+        .single();
 
-      const newCustomer = {
-        id: customerId,
-        companyName: customerName,
-        orgNr: customerOrgNr,
-        contactPerson: body.customerData?.contactPerson || "",
-        role: body.customerData?.role || "",
-        phone: body.customerData?.phone || "",
-        email: customerEmail,
-        address: body.customerData?.address || "",
-        zip: body.customerData?.zip || "",
-        city: body.customerData?.city || "",
-        country: body.customerData?.country || "Sverige",
-        contactDate: today,
-        notes: body.customerData?.notes || "",
-        customerNumber: customerNumber,
-        offers: [body.offerData]
-      };
-
-      const offerData = {
-        customerId: customerId,
-        title: body.offerData.customerName || "Offert",
-        amount: body.offerData.amount || 0,
-        currency: body.offerData.currency || "SEK",
-        dataJson: JSON.stringify({
-          offerId: body.offerData.offerId,
-          items: body.offerData.items || [],
-          date: body.offerData.date,
-          validUntil: body.offerData.validUntil,
-          customerData: body.customerData
-        })
-      };
-
-      // Spara kunddata till localStorage
-      try {
-        const saveResponse = await fetch('/api/customers/save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ customer: newCustomer })
-        });
-        
-        if (!saveResponse.ok) {
-          console.warn('Failed to save customer to localStorage');
-        }
-      } catch (error) {
-        console.warn('Error saving customer:', error);
-      }
-
-      return NextResponse.json({
-        ok: true,
-        customer: newCustomer,
-        offerData: offerData,
-        message: "Ny kund och offert skapade automatiskt",
-        customerFound: false
-      }, { status: 200 });
+      if (insertErr) return err('createCustomer', insertErr.message);
+      customerId = created!.id;
     }
 
+    if (!customerId) return err('invariant', 'customerId saknas efter upsert');
+
+    // 2) Bygg ORDERBEKRÄFTELSE som riktig PDF (samma mall som Offert – endast rubriken skiljer)
+    const bytes = await buildDocument(
+      {
+        customerId,
+        title: 'Orderbekräftelse',
+        amount: Number(offer.amount ?? 0),
+        currency: String(offer.currency ?? 'SEK'),
+        needsPrint: Boolean(offer.needsPrint ?? false),
+        data: {
+          customerName: offer.companyName ?? offer.name ?? '',
+          customerAddress: offer.address ?? '',
+          customerPhone: offer.phone ?? '',
+          customerEmail: offer.email ?? '',
+          orderNumber: `ORD-${Date.now()}`,
+          orderDate: new Date().toLocaleDateString('sv-SE'),
+          source: 'order-from-offer',
+          ...offer,
+        },
+      },
+      'orderConfirmation'
+    );
+
+    console.log('[create-order] pdf bytes length =', bytes?.length);
+    if (!bytes || bytes.length < 1000) return err('buildPdf', 'PDF blev för liten');
+
+    // 3) Ladda upp som **PDF-Blob** till samma bucket som offerten
+    const fileName = `${Date.now()}-order.pdf`;
+    const filePath = `orders/${customerId}/${fileName}`;
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+
+    const { error: upErr } = await admin
+      .storage
+      .from(BUCKET)
+      .upload(filePath, blob, { contentType: 'application/pdf', upsert: true });
+
+    if (upErr) return err('upload', upErr.message, upErr.statusCode ?? 500);
+
+    // 4) ⛔️ Ingen createSignedUrl här — returnera bara path & bucket
+    console.log('[createOrder] uploaded path =', filePath, 'bucket =', BUCKET);
+    return NextResponse.json({ ok: true, path: filePath, bucket: BUCKET, customerId }, { status: 200 });
   } catch (e: any) {
-    return bad(e?.message ?? "Unknown error", 500);
+    return err('createOrder', String(e?.message || e));
   }
 }

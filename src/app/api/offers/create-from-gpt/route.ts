@@ -15,41 +15,7 @@ function bad(msg: string, code = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status: code });
 }
 
-async function createPdfFromText(textData: string): Promise<Uint8Array> {
-  const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([595.28, 841.89]); // A4
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-
-  const marginX = 50;
-  let y = 800;
-
-  const draw = (text: string, bold = false, size = 12, color = rgb(0, 0, 0)) => {
-    const usedFont = bold ? fontBold : font;
-    page.drawText(String(text), { x: marginX, y, size, font: usedFont, color });
-    y -= size + 8;
-  };
-
-  // Dela texten i rader och rita dem
-  const lines = textData.split('\n');
-  for (const line of lines) {
-    if (y < 60) break; // Slut på sidan
-    
-    // Hantera specialformatering
-    if (line.includes('OFFERT') && line.length < 20) {
-      draw(line, true, 20);
-    } else if (line.includes('🧾') || line.includes('📄')) {
-      draw(line, true, 14);
-    } else if (line.includes('---') || line.includes('===')) {
-      // Ignorera separatorer
-      y -= 4;
-    } else {
-      draw(line, false, 11);
-    }
-  }
-
-  return pdfDoc.save();
-}
+import { buildDocument } from '@/lib/pdf/buildDocument';
 
 export async function POST(req: Request) {
   try {
@@ -88,7 +54,14 @@ export async function POST(req: Request) {
     }
 
     // 3) Skapa PDF från text
-    const pdfBytes = await createPdfFromText(textData);
+    const pdfBytes = await buildDocument({ 
+      customerId, 
+      title: 'Offert från GPT', 
+      amount: 0, 
+      currency: 'SEK', 
+      needsPrint: false, 
+      data: { textData } 
+    }, 'offer');
 
     // 4) Storage-path
     const offerId = crypto.randomUUID();

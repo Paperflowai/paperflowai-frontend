@@ -1,16 +1,15 @@
 "use client";
 
-import dynamic from "next/dynamic";
-import { useParams } from "next/navigation";
-import OfferList from "@/components/OfferList";
-import DocumentOverview from "@/components/DocumentOverview";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import LogoutButton from "@/components/LogoutButton";
+import OfferList from "@/components/OfferList";
 import OfferRealtime from "./OfferRealtime";
-
-const CustomerCardInfo = dynamic(() => import("@/components/CustomerCardInfo"), { ssr: false });
+import { CheckCircle, XCircle, Send, FilePlus, FileText } from 'lucide-react';
+import { defaultFlow, FlowStatus, loadFlowStatus, upsertFlowStatus } from "@/lib/flowStatus";
+import { supabase } from "@/lib/supabaseClient";
+import { BUCKET_DOCS, OFFER_BUCKET } from "@/lib/storage";
 
 type DocFile = { name: string; url: string };
 type BkFile = { name: string; url: string; type: "image" | "pdf" };
@@ -18,13 +17,15 @@ type BkFile = { name: string; url: string; type: "image" | "pdf" };
 declare global {
   interface Window {
     pdfjsLib?: any;
-    handleGptResponse?: any;
   }
 }
 
-/* ============================
-   Liten IndexedDB-hjälpare
-   ============================ */
+const isMobile =
+  typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+/* ==================================
+   IndexedDB Database helper functions
+   ==================================== */
 const DB_NAME = "paperflow-docs";
 const STORE = "files";
 
@@ -72,14 +73,122 @@ async function idbDel(key: string) {
   });
 }
 
-/* ============================
-   Komponent
-   ============================ */
+/* ====================================
+   Mobile detection helper functions
+   ==================================== */
+function isMobileDevice() {
+  return typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+/* =======================
+   Flow Status Hook
+   ======================= */
+
+function useFlowStatusSupabase(customerId: string) {
+  const [status, setStatus] = React.useState<FlowStatus>(defaultFlow);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let ok = true;
+    (async () => {
+      try { 
+        const s = await loadFlowStatus(customerId); 
+        if (ok) setStatus(s); 
+      }
+      finally { 
+        if (ok) setLoading(false); 
+      }
+    })();
+    return () => { ok = false; };
+  }, [customerId]);
+
+  const save = React.useCallback(async (patch: Partial<FlowStatus>) => {
+    const s = await upsertFlowStatus(customerId, patch);
+    setStatus(s);
+  }, [customerId]);
+
+  return { status, save, loading };
+}
+
+  // Liten väntare för demo innan riktiga API-anrop kopplas på
+  const fakeWait = (ms = 500) => new Promise((r) => setTimeout(r, ms));
+
+/* =======================
+   React Components
+   ======================= */
+
+function SectionCard({ title, children, right }: { title: string; children: React.ReactNode; right?: React.ReactNode }) {
+  return (
+    <section className="bg-white border rounded-2xl shadow-sm p-4 md:p-6">
+      <div className="flex items-start justify-between mb-4">
+        <h3 className="text-lg font-semibold">{title}</h3>
+        {right}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 export default function KundDetaljsida() {
   const params = useParams();
-  const routeCustomerId = params?.id as string;
   const router = useRouter();
-  const idNumber = parseInt(routeCustomerId);
+  const id = parseInt(params.id as string);
+  
+  // Flow status hook
+  const customerId = typeof params?.id === 'string' ? params.id : "";
+  const { status, save } = useFlowStatusSupabase(customerId);
+
+  // Handle creating order from offer
+  const handleCreateOrder = async () => {
+    setOrderLoading(true);
+    try {
+      const res = await fetch('/api/orders/create-from-offer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ customerId, offerPath: (await ensureOfferPath()).path, bucket: BUCKET_DOCS }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const json = await res.json();
+      // Fallback: hämta order-PDF som Blob via path/bucket och visa som blob:URL
+if (json?.ok && json?.path && json?.bucket) {
+  const { data: file, error } = await supabase.storage
+    .from(json.bucket)
+    .download(json.path);
+
+  if (error || !file) {
+    console.error('[order] download failed', error?.message);
+  } else {
+    // säkerställ korrekt MIME-typ
+    const pdfBlob = file.type === 'application/pdf'
+      ? file
+      : new Blob([file], { type: 'application/pdf' });
+
+    console.log('[order] blob size,type =', pdfBlob.size, pdfBlob.type);
+    const url = URL.createObjectURL(pdfBlob);
+    setOrderPdfUrl(prev => { if (prev) URL.revokeObjectURL(prev); return url; });
+    (window as any)._lastOrderUrl = url; // snabbtest i Console
+    console.log('[order] blob url:', url);
+  }
+  return; // undvik att köra ev. gammal kod under
+}
+      if (json?.ok && json?.path && json?.bucket) {
+        const { data: pdfBlob, error } = await supabase.storage.from(json.bucket).download(json.path);
+        if (!error && pdfBlob) {
+          const url = URL.createObjectURL(pdfBlob);
+          setOrderPdfUrl((old) => { if (old) URL.revokeObjectURL(old); return url; });
+          console.log('[order] blob url:', url);
+          (window as any)._lastOrderUrl = url; // för snabb test i konsolen
+        }
+      }
+      await save({ orderCreated: true });
+    } catch (e: any) {
+      console.error(e);
+      alert(`Kunde inte skapa order: ${e.message || e}`);
+    } finally {
+      setOrderLoading(false);
+    }
+  };
 
   const [data, setData] = useState({
     companyName: "",
@@ -107,48 +216,34 @@ export default function KundDetaljsida() {
   const [offert, setOffert] = useState<DocFile | null>(null);
   const [order, setOrder] = useState<DocFile | null>(null);
   const [invoice, setInvoice] = useState<DocFile | null>(null);
+  const [orderPdfUrl, setOrderPdfUrl] = useState<string | null>(null);
+  const [orderLoading, setOrderLoading] = useState(false);
+  const [offerPath, setOfferPath] = useState<string | null>(null);
   const [sentStatus, setSentStatus] = useState<{ [key: string]: string }>({
     offert: "",
     order: "",
     invoice: ""
   });
 
-  // 📚 Bokföring (bilder + PDF:er) – kvar i localStorage tills du vill flytta dem också
+  // New flow documents
+  const [flowDocuments, setFlowDocuments] = useState<{
+    offers: any[];
+    orders: any[];
+    invoices: any[];
+  }>({ offers: [], orders: [], invoices: [] });
+
+  // Bokföring (bilder + PDF:er) - kvar i localStorage tills du vill flytta dem också
   const [bookkeepingFiles, setBookkeepingFiles] = useState<BkFile[]>([]);
-
-  // 🤖 GPT-offertförhandsvisning
-  const [gptOfferPreview, setGptOfferPreview] = useState<string>("");
-  const [gptOfferPdfUrl, setGptOfferPdfUrl] = useState<string>("");
-
-  // 📄 Dokumentflöde
-  const [documents, setDocuments] = useState<any[]>([]);
-  const [loadingDocuments, setLoadingDocuments] = useState(false);
-
-  // 🏢 Företagsuppgifter
-  const [companyData, setCompanyData] = useState<any>(null);
 
   // Hålla koll på Blob-URL:er för att kunna revoke() på unmount
   const objectUrlsRef = useRef<string[]>([]);
-
-  // Exponera handleGptResponse globalt för externa GPT-integrationer
-  useEffect(() => {
-    window.handleGptResponse = handleGptResponse;
-    return () => {
-      delete window.handleGptResponse;
-    };
-  }, [data]); // Re-exponera när data ändras
-
-  // Ladda dokument när sidan laddas
-  useEffect(() => {
-    if (routeCustomerId) {
-      loadDocuments();
-    }
-  }, [routeCustomerId]);
+  const offertCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const offertPagesRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     // Först försök hämta från den nya strukturen (paperflow_customers_v1)
     const existingCustomers = JSON.parse(localStorage.getItem('paperflow_customers_v1') || '[]');
-    const customer = existingCustomers.find((c: any) => String(c.id) === String(idNumber));
+    const customer = existingCustomers.find((c: any) => String(c.id) === String(id));
     
     if (customer) {
       // Använd data från den nya strukturen
@@ -175,7 +270,7 @@ export default function KundDetaljsida() {
       });
     } else {
       // Fallback till gamla strukturen
-      const saved = localStorage.getItem(`kund_${idNumber}`);
+      const saved = localStorage.getItem(`kund_${id}`);
       if (saved) {
         const parsed = JSON.parse(saved);
         setData({
@@ -199,21 +294,23 @@ export default function KundDetaljsida() {
           vatAmount: "",
           validityDays: ""
         };
-        localStorage.setItem(`kund_${idNumber}`, JSON.stringify(initialData));
+        localStorage.setItem(`kund_${id}`, JSON.stringify(initialData));
         setData(initialData);
       }
     }
 
-    const savedImages = localStorage.getItem(`kund_images_${idNumber}`);
+    const savedImages = localStorage.getItem(`kund_images_${id}`);
     if (savedImages) setImages(JSON.parse(savedImages));
 
     // Hämta enbart namn från localStorage (URL återskapas från IndexedDB)
-    const savedOffertMeta = localStorage.getItem(`kund_offert_${idNumber}`);
-    const savedOrderMeta = localStorage.getItem(`kund_order_${idNumber}`);
-    const savedInvoiceMeta = localStorage.getItem(`kund_invoice_${idNumber}`);
+    const savedOffertMeta = localStorage.getItem(`kund_offert_${id}`);
+    const savedOrderMeta = localStorage.getItem(`kund_order_${id}`);
+    const savedInvoiceMeta = localStorage.getItem(`kund_invoice_${id}`);
 
     async function restoreDoc(type: "offert" | "order" | "invoice", metaStr: string | null) {
-      const key = `${type}_${idNumber}`;
+      const key = `${type}_${id}`;
+      
+      // 1) Försök hämta från IndexedDB först
       const blob = await idbGet(key);
       if (blob) {
         const name = metaStr ? (JSON.parse(metaStr).name as string) : `${type}.pdf`;
@@ -223,6 +320,45 @@ export default function KundDetaljsida() {
         if (type === "offert") setOffert(file);
         if (type === "order") setOrder(file);
         if (type === "invoice") setInvoice(file);
+        return;
+      }
+
+      // 2) Fallback: hämta senaste från Supabase documents
+      try {
+        const { data: docs, error } = await supabase
+          .from('documents')
+          .select('*')
+          .eq('customer_id', id)
+          .eq('doc_type', type)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        if (error || !docs?.length) return;
+
+        const doc = docs[0];
+        const { data: file, error: dlError } = await supabase.storage
+          .from(doc.bucket || 'paperflow-files')
+          .download(doc.storage_path);
+
+        if (dlError || !file) return;
+
+        // Skapa blob och spara tillbaka lokalt
+        const pdfBlob = file.type === 'application/pdf' 
+          ? file 
+          : new Blob([file], { type: 'application/pdf' });
+        
+        await idbSet(key, pdfBlob);
+        
+        const name = doc.filename || `${type}.pdf`;
+        const url = URL.createObjectURL(pdfBlob);
+        objectUrlsRef.current.push(url);
+        const fileObj = { name, url };
+        
+        if (type === "offert") setOffert(fileObj);
+        if (type === "order") setOrder(fileObj);
+        if (type === "invoice") setInvoice(fileObj);
+      } catch (e) {
+        console.warn(`[restoreDoc] Failed to restore ${type} from Supabase:`, e);
       }
     }
 
@@ -232,10 +368,10 @@ export default function KundDetaljsida() {
       .then(() => restoreDoc("invoice", savedInvoiceMeta))
       .catch(() => {});
 
-    const savedStatus = localStorage.getItem(`kund_sent_${idNumber}`);
+    const savedStatus = localStorage.getItem(`kund_sent_${id}`);
     if (savedStatus) setSentStatus(JSON.parse(savedStatus));
 
-    const savedBk = localStorage.getItem(`kund_bookkeeping_${idNumber}`);
+    const savedBk = localStorage.getItem(`kund_bookkeeping_${id}`);
     if (savedBk) setBookkeepingFiles(JSON.parse(savedBk));
 
     return () => {
@@ -243,12 +379,95 @@ export default function KundDetaljsida() {
       objectUrlsRef.current = [];
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idNumber]);
+  }, [id]);
+
+  useEffect(() => {
+    if (!isMobile || !offert?.url || !offertPagesRef.current) return;
+
+    let raf = 0;
+    const draw = () => {
+      raf = requestAnimationFrame(() => {
+        renderPdfToContainer(offert.url, offertPagesRef.current!).catch(console.warn);
+      });
+    };
+
+    draw();
+    const onResize = () => draw();
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [isMobile, offert?.url]);
+
+  // Load flow documents
+  useEffect(() => {
+    const loadFlowDocuments = async () => {
+      try {
+        const response = await fetch(`/api/customers/${id}/documents`);
+        if (response.ok) {
+          const documents = await response.json();
+          setFlowDocuments(documents);
+        }
+      } catch (error) {
+        console.warn('Failed to load flow documents:', error);
+      }
+    };
+    
+    if (id) {
+      loadFlowDocuments();
+    }
+  }, [id]);
+
+  // Fallback vid mount (om offerten redan fanns)
+  useEffect(() => {
+    (async () => {
+      if (offerPath || !customerId) return;
+      // 1) Försök läsa senaste offertraden
+      const { data: doc } = await supabase
+        .from('documents')
+        .select('storage_path')
+        .eq('customer_id', customerId)
+        .in('type', ['offer','offert'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (doc?.storage_path) setOfferPath(doc.storage_path);
+    })();
+  }, [offerPath, customerId]);
+
+  // Helper som säkrar offerPath även när offerten bara är en blob-preview
+  async function ensureOfferPath(): Promise<{ bucket: string, path: string }> {
+    const el = document.querySelector('[data-testid="offer-preview"]');
+    const pathAttr = el?.getAttribute('data-offer-path') || null;
+
+    const path = offerPath ?? pathAttr;
+    if (path) return { bucket: BUCKET_DOCS, path };
+
+    // fallback: hämta senaste offert-path från DB om ni sparar den där
+    const { data: doc } = await supabase
+      .from('documents')
+      .select('storage_path')
+      .eq('customer_id', customerId)
+      .in('type', ['offer','offert'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (doc?.storage_path) {
+      setOfferPath(doc.storage_path);
+      (el as HTMLElement | null)?.setAttribute('data-offer-path', doc.storage_path);
+      return { bucket: BUCKET_DOCS, path: doc.storage_path };
+    }
+
+    throw new Error('Ingen offert hittad. Ladda upp offerten igen i första rutan.');
+  }
 
   function persistData(updated: typeof data) {
     // Spara till den nya strukturen (paperflow_customers_v1)
     const existingCustomers = JSON.parse(localStorage.getItem('paperflow_customers_v1') || '[]');
-    const customerIndex = existingCustomers.findIndex((c: any) => String(c.id) === String(idNumber));
+    const customerIndex = existingCustomers.findIndex((c: any) => String(c.id) === String(id));
     
     if (customerIndex !== -1) {
       // Uppdatera befintlig kund
@@ -277,286 +496,10 @@ export default function KundDetaljsida() {
       localStorage.setItem('paperflow_customers_v1', JSON.stringify(existingCustomers));
     } else {
       // Fallback till gamla strukturen
-      localStorage.setItem(`kund_${idNumber}`, JSON.stringify(updated));
+      localStorage.setItem(`kund_${id}`, JSON.stringify(updated));
     }
     
     setData(updated);
-  }
-
-  // 🧹 Rensa offerttext från box-drawing-tecken
-  function cleanOfferText(text: string): string {
-    // Ta bort alla box-drawing-tecken (Unicode U+2500-U+257F)
-    return text.replace(/[\u2500-\u257F]/g, "");
-  }
-
-  // 🔗 Generera säker kundkortslänk (aldrig låt GPT styra detta)
-  function getCustomerCardUrl(): string {
-    const baseUrl = typeof window !== 'undefined'
-      ? window.location.origin
-      : (process.env.NEXT_PUBLIC_BASE_URL ?? 'http://localhost:3000');
-    
-    return `${baseUrl}/kund/${routeCustomerId}`;
-  }
-
-  // 🤖 Hantera GPT-offertsvar automatiskt
-  async function handleGptResponse(gptReply: string) {
-    try {
-      // 1. Hitta JSON-delen i GPT-svaret med robust regex (första giltiga { ... })
-      const jsonMatch = gptReply.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        console.warn("Ingen JSON hittad i GPT-svar");
-        return;
-      }
-
-      // 2. Parsa JSON
-      const jsonData = JSON.parse(jsonMatch[0]);
-      
-      // 3. Tvinga customerId från route (inte från GPT)
-      jsonData.customerId = routeCustomerId;
-
-      // 4. Mappa ALLA kundfält från parsed.dataJson.kund till state
-      const kundData = jsonData.dataJson?.kund || {};
-      const foretagData = jsonData.dataJson?.foretag || {};
-      
-      const updatedData = {
-        ...data,
-        // Grundläggande kunduppgifter
-        companyName: kundData.namn || foretagData.namn || data.companyName,
-        contactPerson: kundData.kontaktperson || data.contactPerson,
-        phone: kundData.telefon || foretagData.telefon || data.phone,
-        email: kundData.epost || foretagData.epost || data.email,
-        address: kundData.adress || foretagData.adress || data.address,
-        zip: kundData.postnummer || data.zip,
-        city: kundData.ort || data.city,
-        orgNr: kundData.orgnr || foretagData.orgnr || data.orgNr,
-        contactDate: kundData.datum || data.contactDate,
-        // Offertspecifika fält
-        title: jsonData.title || data.title,
-        amount: jsonData.amount || data.amount,
-        currency: jsonData.currency || data.currency,
-        totalSum: jsonData.totalSum || data.totalSum,
-        vatPercent: jsonData.vatPercent || data.vatPercent,
-        vatAmount: jsonData.vatAmount || data.vatAmount,
-        validityDays: jsonData.validityDays || data.validityDays,
-        // Ytterligare fält från kunddata
-        customerNumber: kundData.offertnummer || data.customerNumber,
-        position: kundData.befattning || data.position,
-        country: kundData.land || data.country || "Sverige"
-      };
-
-      persistData(updatedData);
-
-      // 5. Plocka ut textdelen (allt efter JSON)
-      const textStart = gptReply.indexOf(jsonMatch[0]) + jsonMatch[0].length;
-      const rawTextData = gptReply.substring(textStart).trim();
-      
-      // 6. Rensa textdelen från box-drawing-tecken
-      const cleanTextData = cleanOfferText(rawTextData);
-      
-      // 7. Spara textdelen i state för förhandsvisning (aldrig JSON i UI)
-      setGptOfferPreview(cleanTextData);
-
-      // 8. Spara i Supabase documents-tabellen
-      const response = await fetch('/api/documents/create-from-gpt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerId: routeCustomerId, // Tvinga route ID
-          jsonData: jsonData,
-          textData: cleanTextData,
-          documentType: jsonData.documentType || 'offert'
-        })
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        setGptOfferPdfUrl(result.pdfUrl);
-        console.log('GPT-offert sparad i Supabase:', result);
-      } else {
-        console.error('Fel vid sparande av GPT-offert:', await response.text());
-      }
-
-    } catch (error) {
-      console.error('Fel vid hantering av GPT-svar:', error);
-    }
-  }
-
-  // 🔍 Testfunktion för GPT-offertsvar
-  async function testGptResponse() {
-    const testGptReply = `{
-  "customerId": "test-customer-123",
-  "title": "Offert – Renovering",
-  "amount": 45000,
-  "currency": "SEK",
-  "needsPrint": false,
-  "dataJson": {
-    "kund": {
-      "namn": "Bygg AB",
-      "offertnummer": "K-527072",
-      "kontaktperson": "Anna Andersson",
-      "epost": "anna@byggab.se",
-      "telefon": "070-1234567",
-      "adress": "Byggvägen 12",
-      "postnummer": "12345",
-      "ort": "Stockholm",
-      "orgnr": "556677-8899",
-      "datum": "2025-09-17",
-      "befattning": "VD",
-      "land": "Sverige"
-    }
-  }
-}
-
-Offertinnehåll:
-[LOGOTYP HÄR]
-
-OFFERT
-
-Kund: Bygg AB
-Datum: 2025-09-17
-Offertnummer: K-527072
-
-Kundinformation:
-Org.nr: 556677-8899
-Adress: Byggvägen 12
-Kontaktperson: Anna Andersson
-Telefon: 070-1234567
-E-post: anna@byggab.se
-
-Tjänster:
-┌─────────────────┬─────────┬─────────────┬─────────┐
-│ Tjänst          │ Timmar  │ Pris/tim    │ Totalt  │
-├─────────────────┼─────────┼─────────────┼─────────┤
-│ Renovering      │ 50      │ 800 SEK     │ 40 000  │
-│ Material        │ -       │ -           │ 5 000   │
-└─────────────────┴─────────┴─────────────┴─────────┘
-
-Totalsumma: 45 000 SEK exkl. moms
-
-Betalningsvillkor:
-Betaltid: 30 dagar
-Dröjsmålsränta: 8% enligt räntelagen
-Fakturamottagare: faktura@example.se
-Bankgiro: 123-4567
-Notis: Moms tillkommer
-
-GDPR:
-Vi hanterar kunduppgifter enligt Dataskyddsförordningen (GDPR). Personuppgifter används endast för att uppfylla avtal, hantera fakturering och kundkontakt.
-
-Giltighet:
-Denna offert är giltig i 30 dagar från utskriftsdatum. Priser anges exklusive moms.
-
-Signatur:
-[Namn och e-post på undertecknare]`;
-
-    try {
-      await handleGptResponse(testGptReply);
-      alert('✅ Test GPT-offert hanterad! Kontrollera att kundkortet fyllts i och att förhandsvisningen visas (box-drawing-tecken rensade).');
-    } catch (error) {
-      console.error('Test GPT-offert fel:', error);
-      alert('❌ Test GPT-offert misslyckades. Kontrollera konsolen för detaljer.');
-    }
-  }
-
-  // 📄 Hämta dokument för kunden
-  async function loadDocuments() {
-    setLoadingDocuments(true);
-    try {
-      const response = await fetch(`/api/documents/list?customerId=${routeCustomerId}`);
-      if (response.ok) {
-        const data = await response.json();
-        setDocuments(data.documents || []);
-        
-        // Hämta företagsdata från senaste dokument
-        if (data.documents && data.documents.length > 0) {
-          const latestDoc = data.documents[0];
-          if (latestDoc.data_json && latestDoc.data_json.foretag) {
-            setCompanyData(latestDoc.data_json.foretag);
-          }
-        }
-      } else {
-        console.error("Fel vid hämtning av dokument:", await response.text());
-      }
-    } catch (error) {
-      console.error("Fel vid hämtning av dokument:", error);
-    } finally {
-      setLoadingDocuments(false);
-    }
-  }
-
-  // 📑 Skapa orderbekräftelse
-  async function createOrderConfirmation() {
-    try {
-      const response = await fetch('/api/documents/create-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerId: routeCustomerId
-        })
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        alert(`✅ ${result.message}`);
-        loadDocuments(); // Uppdatera dokumentlista
-      } else {
-        const error = await response.text();
-        alert(`❌ Fel vid skapande av orderbekräftelse: ${error}`);
-      }
-    } catch (error) {
-      console.error("Fel vid skapande av orderbekräftelse:", error);
-      alert("❌ Fel vid skapande av orderbekräftelse");
-    }
-  }
-
-  // 💰 Skapa faktura
-  async function createInvoice() {
-    try {
-      const response = await fetch('/api/documents/create-invoice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerId: routeCustomerId
-        })
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        alert(`✅ ${result.message}`);
-        loadDocuments(); // Uppdatera dokumentlista
-      } else {
-        const error = await response.text();
-        alert(`❌ Fel vid skapande av faktura: ${error}`);
-      }
-    } catch (error) {
-      console.error("Fel vid skapande av faktura:", error);
-      alert("❌ Fel vid skapande av faktura");
-    }
-  }
-
-  // 📤 Skicka till bokföring
-  async function sendToBookkeeping() {
-    try {
-      const response = await fetch('/api/documents/send-to-bookkeeping', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerId: routeCustomerId
-        })
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        alert(`✅ ${result.message}`);
-        loadDocuments(); // Uppdatera dokumentlista
-      } else {
-        const error = await response.text();
-        alert(`❌ Fel vid skickande till bokföring: ${error}`);
-      }
-    } catch (error) {
-      console.error("Fel vid skickande till bokföring:", error);
-      alert("❌ Fel vid skickande till bokföring");
-    }
   }
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
@@ -576,7 +519,7 @@ Signatur:
         const newImage = { name: file.name, url: result };
         setImages((prev) => {
           const updated = [...prev, newImage];
-          localStorage.setItem(`kund_images_${idNumber}`, JSON.stringify(updated));
+          localStorage.setItem(`kund_images_${id}`, JSON.stringify(updated));
           return updated;
         });
       };
@@ -587,12 +530,12 @@ Signatur:
   function deleteImage(index: number) {
     setImages((prev) => {
       const updated = [...prev.slice(0, index), ...prev.slice(index + 1)];
-      localStorage.setItem(`kund_images_${idNumber}`, JSON.stringify(updated));
+      localStorage.setItem(`kund_images_${id}`, JSON.stringify(updated));
       return updated;
     });
   }
 
-  // === Ladda PDF.js (via CDN) exakt en gång ===
+  // === Load PDF.js (via CDN) exactly once ===
   async function loadPdfJsOnce(): Promise<any> {
     if (window.pdfjsLib) return window.pdfjsLib;
 
@@ -607,13 +550,147 @@ Signatur:
 
     const pdfjsLib = window.pdfjsLib!;
     try {
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      }
     } catch {}
     return pdfjsLib;
   }
 
-  // === Läs ut text från PDF (alla sidor) ===
+  async function renderPdfToContainer(url: string, container: HTMLDivElement) {
+    const pdfjsLib = await loadPdfJsOnce();
+
+    // Clear existing content
+    container.innerHTML = "";
+
+    // Measure width robustly (fallback if 0 px)
+    const measureWidth = () => {
+      const r = container.getBoundingClientRect();
+      if (r.width > 0) return Math.floor(r.width);
+      if (container.parentElement) {
+        const pr = container.parentElement.getBoundingClientRect();
+        if (pr.width > 0) return Math.floor(pr.width);
+      }
+      return Math.floor(window.innerWidth || 360);
+    };
+
+    // Wait two frames for layout to set width (mobile-safe)
+    await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res as any)));
+
+    const cssWidth = measureWidth();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2); // small cap for stability/memory
+
+    // Try URL first; fallback to ArrayBuffer if it fails
+    let doc: any;
+    try {
+      doc = await pdfjsLib.getDocument({ url }).promise;
+    } catch {
+      const ab = await (await fetch(url)).arrayBuffer();
+      doc = await pdfjsLib.getDocument({ data: ab }).promise;
+    }
+
+    for (let p = 1; p <= doc.numPages; p++) {
+      try {
+        const page = await doc.getPage(p);
+        const base = page.getViewport({ scale: 1 });
+        const scale = (cssWidth * dpr) / base.width;
+        const vp = page.getViewport({ scale });
+
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d")!;
+
+        // pixel size (render)
+        canvas.width = Math.ceil(vp.width);
+        canvas.height = Math.ceil(vp.height);
+
+        // visible size (CSS)
+        canvas.style.width = cssWidth + "px";
+        canvas.style.height = Math.ceil(vp.height / dpr) + "px";
+        canvas.className = "mb-3 rounded border bg-white";
+
+        // white background (Android/transparency)
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
+        container.appendChild(canvas);
+
+        await new Promise(resolve => {
+          if (typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(resolve);
+          } else {
+            setTimeout(resolve, 0);
+          }
+        });
+      } catch (e) {
+        console.warn("Render fail p", p, e);
+      }
+    }
+  }
+
+  async function renderPdfToCanvas(url: string, canvas: HTMLCanvasElement) {
+    const pdfjsLib = await loadPdfJsOnce();
+    const ab = await (await fetch(url)).arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+    
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5); // cap for memory
+    const cssWidth = canvas.clientWidth || 360;
+
+    // Load all pages and calculate all measures first
+    const pages = [];
+    const pageRenders = [];
+    
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      pages.push(await pdf.getPage(pageNum));
+    }
+    
+    // Calculate viewport for all pages
+    const pageData = [];
+    let totalHeight = 0;
+    let maxWidth = 0;
+    
+    for (const page of pages) {
+      const pageBase = page.getViewport({ scale: 1 });
+      const pageScale = (cssWidth * dpr) / pageBase.width;
+      const pageVp = page.getViewport({ scale: pageScale });
+      
+      pageData.push({
+        page,
+        viewport: pageVp,
+        width: Math.ceil(pageVp.width),
+        height: Math.ceil(pageVp.height),
+        yOffset: totalHeight
+      });
+      
+      totalHeight += Math.ceil(pageVp.height);
+      maxWidth = Math.max(maxWidth, Math.ceil(pageVp.width));
+    }
+
+    // Set canvas pixel size 
+    canvas.width = maxWidth;
+    canvas.height = totalHeight;
+    
+    // Set CSS size (visible size) to provide space for scrollbar
+    canvas.style.width = cssWidth + "px";
+    canvas.style.height = Math.ceil(totalHeight / dpr) + "px";
+
+    const ctx = canvas.getContext("2d")!;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Render all pages at correct positions
+    for (const pageInfo of pageData) {
+      await pageInfo.page.render({
+        canvasContext: ctx,
+        viewport: pageInfo.viewport,
+        transform: [1, 0, 0, 1, 0, pageInfo.yOffset]
+      }).promise;
+    }
+  }
+
+  // === Extract text from PDF (all pages) ===
   async function extractTextFromPDF(file: File): Promise<string> {
     try {
       const pdfjsLib = await loadPdfJsOnce();
@@ -634,7 +711,7 @@ Signatur:
     }
   }
 
-  // Hjälpare för parser
+  // Helper for parser
   function normalize(s: string) {
     return s
       .replace(/\u2011|\u2013|\u2014/g, "-")
@@ -647,7 +724,7 @@ Signatur:
     return (zip || "").trim();
   }
 
-  // === Parser (säker, null-guarded) ===
+  // === Parser (safe, null-guarded) ===
   function parseFieldsFromText(txt: string, filename?: string) {
     try {
       const norm = normalize(txt || "");
@@ -771,15 +848,15 @@ Signatur:
       vatAmount: "",
       validityDays: ""
     };
-    localStorage.setItem(`kund_${idNumber}`, JSON.stringify(tomData));
+    localStorage.setItem(`kund_${id}`, JSON.stringify(tomData));
     setData(tomData);
 
     const newStatus = { ...sentStatus, offert: "" };
     setSentStatus(newStatus);
-    localStorage.setItem(`kund_sent_${idNumber}`, JSON.stringify(newStatus));
+    localStorage.setItem(`kund_sent_${id}`, JSON.stringify(newStatus));
   }
 
-  // === Uppladdning (IndexedDB + säker reset av input) ===
+  // === Uppladdning (IndexedDB + Supabase Storage + säker reset av input) ===
   async function handleSpecialUpload(
     e: React.ChangeEvent<HTMLInputElement>,
     type: "offert" | "order" | "invoice"
@@ -793,7 +870,7 @@ Signatur:
 
     try {
       // 1) Spara filen (Blob) i IndexedDB
-      const key = `${type}_${idNumber}`;
+      const key = `${type}_${id}`;
       await idbSet(key, uploaded);
 
       // 2) Skapa objectURL för visning nu
@@ -802,57 +879,93 @@ Signatur:
 
       // 3) Spara ENDAST filnamnet i localStorage
       const meta = { name: uploaded.name };
-      localStorage.setItem(`kund_${type}_${idNumber}`, JSON.stringify(meta));
+      localStorage.setItem(`kund_${type}_${id}`, JSON.stringify(meta));
 
-      // 4) Uppdatera state
-      const newFile = { name: uploaded.name, url };
-      if (type === "offert") setOffert(newFile);
-      if (type === "order") setOrder(newFile);
-      if (type === "invoice") setInvoice(newFile);
-
-      // 5) Autofyll vid offert och spara i Supabase
+      // 4) Upload to Supabase Storage for offerts
       if (type === "offert") {
-        try {
-          // Konvertera PDF till base64
-          const arrayBuffer = await uploaded.arrayBuffer();
-          const base64 = Buffer.from(arrayBuffer).toString('base64');
-          
-          // Skicka till API för att extrahera text och spara i Supabase
-          const response = await fetch('/api/pdf-extract-and-parse', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              pdfBase64: base64,
-              customerId: routeCustomerId
-            })
-          });
+        const timestamp = Date.now();
+        const fileName = `offers/${customerId}/${timestamp}-${uploaded.name}`;
+        
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from(BUCKET_DOCS)
+          .upload(fileName, uploaded, { upsert: true });
 
-          if (response.ok) {
-            const result = await response.json();
-            const parsedData = result.parsedData;
-            
-            // Fyll i kundkortets fält automatiskt
-            const mapped = {
-              companyName: parsedData.customerName || "",
-              orgNr: parsedData.orgNr || "",
-              address: parsedData.address || "",
-              email: parsedData.email || "",
-              phone: parsedData.phone || "",
-              // Lägg till offertdata
-              offerText: result.offer?.data_json?.extractedText || "",
-              totalSum: parsedData.amount || 0,
-              currency: parsedData.currency || "SEK"
-            };
-            
-            const updated = { ...data, ...mapped };
-            persistData(updated);
-            console.log("Autofyllda fält och sparad i Supabase:", mapped);
-            
-            // Visa bekräftelse
-            alert(`Offert extraherad och sparad i Supabase!\nKund: ${parsedData.customerName}\nBelopp: ${parsedData.amount} ${parsedData.currency}`);
+        if (uploadError) {
+          console.error('Supabase upload error:', uploadError);
+        } else {
+          // Save storage path and create preview URL
+          setOfferPath(uploadData.path);
+          
+          // Update the offer state with blob URL
+          const { data: pdfBlob, error } = await supabase.storage.from(BUCKET_DOCS).download(uploadData.path);
+          if (!error && pdfBlob) {
+            const url = URL.createObjectURL(pdfBlob);
+      const newFile = { name: uploaded.name, url };
+            setOffert(newFile);
+          }
+
+          // Save document record in database
+          const { error: docError } = await supabase
+            .from('documents')
+            .insert({
+              customer_id: customerId,
+              type: 'offer',
+              storage_path: uploadData.path,
+              filename: uploaded.name,
+              created_at: new Date().toISOString()
+            });
+
+          if (docError) {
+            console.error('Documents table insert error:', docError);
           } else {
-            console.error("API error:", await response.text());
-            // Fallback till befintlig logik
+            console.log('Offer saved to Supabase:', uploadData.path);
+          }
+
+          // 6) Autofyll vid offert using server-side parsing
+          try {
+            const resp = await fetch('/api/offers/parse', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ bucket: OFFER_BUCKET, path: uploadData.path })
+            });
+            
+            if (resp.ok) {
+              const json = await resp.json();
+              
+              // Update customer data with parsed data
+              const updated = { ...data, ...json.parsed.customer };
+              setData(updated);
+              persistData(updated);
+              
+              // Save to database
+              const { error: updateError } = await supabase
+                .from('customers')
+                .update(json.parsed.customer)
+                .eq('id', customerId);
+              
+              if (updateError) {
+                console.error('Customer update error:', updateError);
+              } else {
+                console.log("Autofyllda fält från server:", json.parsed.customer);
+              }
+            } else {
+              const errorText = await resp.text();
+              console.warn("Parse API failed:", errorText);
+              
+              // Fallback to local parsing
+        const text = await extractTextFromPDF(uploaded);
+        if (text && text.trim().length > 0) {
+          const mapped = parseFieldsFromText(text, uploaded.name);
+          const updated = { ...data, ...mapped };
+          persistData(updated);
+                console.log("Autofyllda fält (fallback):", mapped);
+              }
+            }
+          } catch (parseError) {
+            console.error("Parse error:", parseError);
+            
+            // Fallback to local parsing
             const text = await extractTextFromPDF(uploaded);
             if (text && text.trim().length > 0) {
               const mapped = parseFieldsFromText(text, uploaded.name);
@@ -861,18 +974,35 @@ Signatur:
               console.log("Autofyllda fält (fallback):", mapped);
             }
           }
-        } catch (error) {
-          console.error("Error processing PDF:", error);
-          // Fallback till befintlig logik
-          const text = await extractTextFromPDF(uploaded);
-          if (text && text.trim().length > 0) {
-            const mapped = parseFieldsFromText(text, uploaded.name);
-            const updated = { ...data, ...mapped };
-            persistData(updated);
-            console.log("Autofyllda fält (fallback):", mapped);
-          }
         }
       }
+
+      // 5) Uppdatera state (offert handled above)
+      if (type !== "offert") {
+      const newFile = { name: uploaded.name, url };
+      if (type === "order") setOrder(newFile);
+      if (type === "invoice") setInvoice(newFile);
+      
+      // Spara faktura i documents tabellen för synk
+      if (type === "invoice") {
+        try {
+          const fileName = `${Date.now()}-faktura.pdf`;
+          const storagePath = `invoices/${id}/${fileName}`;
+          await supabase.from('documents').insert({
+            customer_id: id,
+            doc_type: 'invoice',
+            storage_path: storagePath,
+            filename: fileName,
+            bucket: 'paperflow-files',
+            created_at: new Date().toISOString()
+          });
+          console.log('[handleSpecialUpload] saved invoice to documents table');
+        } catch (docErr) {
+          console.warn('[handleSpecialUpload] documents insert failed:', docErr);
+        }
+      }
+      }
+
     } finally {
       // ✅ säkert att nollställa efter async
       inputEl.value = "";
@@ -900,7 +1030,7 @@ Signatur:
 
     const newStatus = { ...sentStatus, [typ]: now };
     setSentStatus(newStatus);
-    localStorage.setItem(`kund_sent_${idNumber}`, JSON.stringify(newStatus));
+    localStorage.setItem(`kund_sent_${id}`, JSON.stringify(newStatus));
 
     alert(`${typ} skickad till ${data.email}`);
   }
@@ -931,7 +1061,7 @@ Signatur:
         const entry: BkFile = { name: file.name, url: result, type };
         setBookkeepingFiles((prev) => {
           const updated = [...prev, entry];
-          localStorage.setItem(`kund_bookkeeping_${idNumber}`, JSON.stringify(updated));
+          localStorage.setItem(`kund_bookkeeping_${id}`, JSON.stringify(updated));
           return updated;
         });
       };
@@ -944,16 +1074,122 @@ Signatur:
   function deleteBookkeeping(index: number) {
     setBookkeepingFiles((prev) => {
       const updated = [...prev.slice(0, index), ...prev.slice(index + 1)];
-      localStorage.setItem(`kund_bookkeeping_${idNumber}`, JSON.stringify(updated));
+      localStorage.setItem(`kund_bookkeeping_${id}`, JSON.stringify(updated));
       return updated;
     });
   }
 
+  // Flow operations
+  async function createOfferFromForm() {
+    try {
+      const response = await fetch(`/api/customers/${id}/offers/create-from-form`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      
+      const result = await response.json();
+      if (result.ok) {
+        // Reload flow documents
+        window.location.reload();
+      } else {
+        alert('Kunde inte skapa offert: ' + (result.error || 'Okänt fel'));
+      }
+    } catch (error) {
+      alert('Kunde inte skapa offert: ' + error);
+    }
+  }
+
+  async function sendOffer(offerId: string) {
+    try {
+      const response = await fetch(`/api/offers/${offerId}/send`, {
+        method: 'POST'
+      });
+      
+      const result = await response.json();
+      if (result.ok) {
+        window.location.reload();
+      } else {
+        alert('Kunde inte skicka offert: ' + (result.error || 'Okänt fel'));
+      }
+    } catch (error) {
+      alert('Kunde inte skicka offert: ' + error);
+    }
+  }
+
+  async function offerToOrder(offerId: string) {
+    try {
+      const response = await fetch(`/api/offers/${offerId}/to-order`, {
+        method: 'POST'
+      });
+      
+      const result = await response.json();
+      if (result.ok) {
+        window.location.reload();
+      } else {
+        alert('Kunde inte skapa order: ' + (result.error || 'Okänt fel'));
+      }
+    } catch (error) {
+      alert('Kunde inte skapa order: ' + error);
+    }
+  }
+
+  async function orderToInvoice(orderId: string) {
+    try {
+      const response = await fetch(`/api/orders/${orderId}/to-invoice`, {
+        method: 'POST'
+      });
+      
+      const result = await response.json();
+      if (result.ok) {
+        window.location.reload();
+      } else {
+        alert('Kunde inte skapa faktura: ' + (result.error || 'Okänt fel'));
+      }
+    } catch (error) {
+      alert('Kunde inte skapa faktura: ' + error);
+    }
+  }
+
+  async function sendInvoice(invoiceId: string) {
+    try {
+      const response = await fetch(`/api/invoices/${invoiceId}/send`, {
+        method: 'POST'
+      });
+      
+      const result = await response.json();
+      if (result.ok) {
+        window.location.reload();
+      } else {
+        alert('Kunde inte skicka faktura: ' + (result.error || 'Okänt fel'));
+      }
+    } catch (error) {
+      alert('Kunde inte skicka faktura: ' + error);
+    }
+  }
+
+  async function invoiceToBookkeeping(invoiceId: string) {
+    try {
+      const response = await fetch(`/api/invoices/${invoiceId}/export-bookkeeping`, {
+        method: 'POST'
+      });
+      
+      const result = await response.json();
+      if (result.ok) {
+        window.location.reload();
+      } else {
+        alert('Kunde inte exportera till bokföring: ' + (result.error || 'Okänt fel'));
+      }
+    } catch (error) {
+      alert('Kunde inte exportera till bokföring: ' + error);
+    }
+  }
+
   // Ta bort en huvud-PDF
   async function removeDoc(type: "offert" | "order" | "invoice") {
-    const key = `${type}_${idNumber}`;
+    const key = `${type}_${id}`;
     await idbDel(key);
-    localStorage.removeItem(`kund_${type}_${idNumber}`);
+    localStorage.removeItem(`kund_${type}_${id}`);
 
     if (type === "offert") setOffert(null);
     if (type === "order") setOrder(null);
@@ -961,17 +1197,25 @@ Signatur:
   }
 
             return (
-            <div className="min-h-screen bg-white p-6 text-gray-800 max-w-4xl mx-auto">
+    <div className="min-h-screen bg-white p-6 text-gray-800 max-w-6xl mx-auto">
               <LogoutButton />
               
-              {/* Lokal utvecklingsbanner */}
-              {process.env.NODE_ENV === 'development' && (
-                <div className="bg-yellow-400 text-black text-center py-2 px-4 rounded-md mb-4 font-semibold">
-                  DU ÄR I LOKAL VERSION (localhost:3000)
+      {/* Sticky toppbar */}
+      <header className="sticky top-0 z-40 backdrop-blur bg-white/70 border-b mb-6">
+        <div className="max-w-6xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <Link href="/dashboard" className="text-sm text-gray-600 hover:underline">← Tillbaka</Link>
+            <div /> {/* spacer */}
                 </div>
-              )}
-              
-              <h1 className="text-3xl font-bold mb-6">Kundkort</h1>
+          <div className="text-center">
+            <h1 className="text-2xl font-bold">KUNDKORT</h1>
+            <div className="text-xs text-gray-500">
+              {data.companyName && <div>{data.companyName}</div>}
+              <div>Kundnummer: <span className="inline-block bg-gray-100 px-2 py-0.5 rounded">{data.customerNumber}</span></div>
+            </div>
+          </div>
+        </div>
+      </header>
 
       {/* Till bokföringen-knapp */}
       <div className="mb-4 flex justify-between">
@@ -989,43 +1233,9 @@ Signatur:
         </Link>
       </div>
 
-      {/* Kunduppgifter – visas högt upp, mobilvänligt */}
-      <section className="mt-3 mb-4">
-        <CustomerCardInfo customerId={routeCustomerId} />
-      </section>
-
-      {/* Dokumentöversikt – liknande bokföringsprogram */}
-      <section id="dokument" className="mt-3 mb-6">
-        <h2 className="text-lg font-semibold mb-2 text-gray-800">Dokumentöversikt</h2>
-        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-          <DocumentOverview customerId={routeCustomerId} />
-        </div>
-      </section>
-
-      {/* Offerter – placerad högt upp under knapparna (mobilvänlig) */}
-      <section id="offerter" className="mt-3 mb-6">
-        <h2 className="text-lg font-semibold mb-2 text-gray-800 flex items-center gap-2">
-          Offerter
-          <span className="text-xs text-gray-500">
-            <span className="text-green-600">✓ Klar</span> • 
-            <span className="text-orange-600">⚠ Skickad</span> • 
-            <span className="text-red-600">✗ Ej skickad</span>
-          </span>
-        </h2>
-        <div className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
-          <OfferList 
-            customerId={routeCustomerId} 
-            customerEmail={data.email} 
-            onEmailUpdate={(email) => {
-              const updated = { ...data, email };
-              persistData(updated);
-            }}
-          />
-        </div>
-      </section>
-
-      {/* === Kunduppgifter med rubriker === */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+      {/* Kunduppgifter */}
+      <SectionCard title="Kunduppgifter">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="flex flex-col">
           <label htmlFor="companyName" className="text-sm text-gray-600 mb-1">Företagsnamn</label>
           <input id="companyName" name="companyName" value={data.companyName} onChange={handleChange} className="border p-2 rounded" />
@@ -1076,7 +1286,6 @@ Signatur:
           <input id="contactDate" name="contactDate" type="date" value={data.contactDate} onChange={handleChange} className="border p-2 rounded" />
         </div>
 
-        {/* Behåller extra fält */}
         <div className="flex flex-col">
           <label htmlFor="role" className="text-sm text-gray-600 mb-1">Befattning</label>
           <input id="role" name="role" value={data.role} onChange={handleChange} className="border p-2 rounded" />
@@ -1087,71 +1296,12 @@ Signatur:
           <input id="country" name="country" value={data.country} onChange={handleChange} className="border p-2 rounded" />
         </div>
       </div>
+      </SectionCard>
 
-      {/* === Företagsuppgifter === */}
-      {companyData && (
-        <div className="mb-6">
-          <h2 className="text-xl font-bold mb-4">🏢 Företagsuppgifter</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-            {companyData.namn && (
-              <div className="flex flex-col">
-                <label className="text-sm text-gray-600 mb-1">Namn</label>
-                <div className="border p-2 rounded bg-gray-50">{companyData.namn}</div>
-              </div>
-            )}
-            
-            {companyData.orgnr && (
-              <div className="flex flex-col">
-                <label className="text-sm text-gray-600 mb-1">Org.nr</label>
-                <div className="border p-2 rounded bg-gray-50">{companyData.orgnr}</div>
-              </div>
-            )}
-            
-            {companyData.adress && (
-              <div className="flex flex-col">
-                <label className="text-sm text-gray-600 mb-1">Adress</label>
-                <div className="border p-2 rounded bg-gray-50">{companyData.adress}</div>
-              </div>
-            )}
-            
-            {companyData.epost && (
-              <div className="flex flex-col">
-                <label className="text-sm text-gray-600 mb-1">E-post</label>
-                <div className="border p-2 rounded bg-gray-50">{companyData.epost}</div>
-              </div>
-            )}
-            
-            {companyData.telefon && (
-              <div className="flex flex-col">
-                <label className="text-sm text-gray-600 mb-1">Telefon</label>
-                <div className="border p-2 rounded bg-gray-50">{companyData.telefon}</div>
-              </div>
-            )}
-            
-            {companyData.logotyp && (
-              <div className="flex flex-col sm:col-span-2">
-                <label className="text-sm text-gray-600 mb-1">Logotyp</label>
-                <div className="border p-2 rounded bg-gray-50">
-                  <img 
-                    src={companyData.logotyp} 
-                    alt="Företagslogotyp" 
-                    className="max-w-32 max-h-16 object-contain"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* === Offertdata (om de finns) === */}
+      {/* Offertdata (om de finns) */}
       {(data.totalSum || data.vatPercent || data.vatAmount || data.validityDays) && (
-        <div className="mb-6">
-          <h2 className="text-xl font-bold mb-4">💰 Offertdata</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+        <SectionCard title="💰 Offertdata">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {data.totalSum && (
               <div className="flex flex-col">
                 <label htmlFor="totalSum" className="text-sm text-gray-600 mb-1">Totalsumma</label>
@@ -1180,46 +1330,27 @@ Signatur:
               </div>
             )}
           </div>
-        </div>
+        </SectionCard>
       )}
 
-      {/* Offerter */}
-      <OfferRealtime customerId={routeCustomerId} />
-
-      <h2 className="text-xl font-bold mt-8">📷 Bilder och kladdlappar</h2>
-      <input type="file" accept="image/*" multiple onChange={handleImageUpload} className="mt-2 mb-4 text-blue-700 font-semibold cursor-pointer" />
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        {images.map((img, idx) => (
-          <div key={idx} className="border p-2 rounded shadow relative">
-            <img src={img.url} alt={img.name} className="w-full h-auto rounded" />
-            <p className="text-xs mt-1 break-all">{img.name}</p>
-            <button
-              onClick={() => deleteImage(idx)}
-              className="absolute top-1 right-1 text-red-600 text-sm font-bold bg-white px-2 py-0.5 rounded"
-              title="Ta bort bild"
-            >
-              🗑️
-            </button>
-          </div>
-        ))}
-      </div>
-
-      <h2 className="text-xl font-bold mt-8">GPT-genererade dokument</h2>
-
-      {/* Offert */}
-      <div className="mb-4">
-        <p className="font-semibold">🧾 Offert (PDF):</p>
+      {/* Dokumentflöde */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Offert Card */}
+        <SectionCard title="🧾 Offert" right={
+          <span className={`text-xs px-2 py-0.5 rounded-full ${sentStatus["offert"] ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
+            {sentStatus["offert"] ? `Skickad ${sentStatus["offert"]}` : "Utkast"}
+          </span>
+        }>
         <input
           type="file"
           accept="application/pdf"
           onChange={(e) => handleSpecialUpload(e, "offert")}
-          className="text-blue-700 font-semibold cursor-pointer"
+            className="text-blue-700 font-semibold cursor-pointer mb-4 w-full"
         />
         {offert && (
-          <div className="mt-2 space-y-2">
+            <div className="space-y-2">
             <div className="flex justify-between items-center gap-4">
               <p className="text-sm text-blue-600">📎 {offert.name}</p>
-              <div className="flex gap-2">
                 <button
                   onClick={async () => {
                     await removeDoc("offert");
@@ -1229,31 +1360,55 @@ Signatur:
                 >
                   🗑️ Ta bort
                 </button>
-              </div>
             </div>
-            <iframe src={offert.url} className="w-full h-64 border rounded" title="Offert PDF"></iframe>
-            <div className="flex gap-2 mt-2">
-              <button onClick={() => skickaEpost(offert.url, "offert")} className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">
-                📤 Skicka
+            {isMobile ? (
+              <div ref={offertPagesRef} className="w-full" />
+            ) : (
+              <iframe
+                src={offert.url + "#toolbar=0"}
+                className="w-full h-96 border rounded"
+                title="Offert PDF"
+                data-testid="offer-preview"
+                data-offer-path={offerPath ?? ''}
+                data-bucket={BUCKET_DOCS}
+              />
+            )}
+              <div className="flex items-center gap-2" data-testid="offer-actions">
+                <button
+                  type="button"
+                  className="btn btn-primary flex items-center gap-1"
+                  onClick={async () => { await fakeWait(); await save({ offerSent: true }); }}
+                  title="Skicka offert"
+                >
+                  <Send size={16} /> Skicka
               </button>
-              <button onClick={() => printPdf(offert.url)} className="bg-gray-300 px-3 py-1 rounded hover:bg-gray-400">🖨️ Skriv ut</button>
-              {sentStatus["offert"] && <p className="text-green-600 text-sm">✔️ Skickad {sentStatus["offert"]}</p>}
+
+                {status.offerSent
+                  ? <span className="flex items-center gap-1 text-green-600"><CheckCircle size={16} /> Skickad</span>
+                  : <span className="flex items-center gap-1 text-red-600"><XCircle size={16} /> Ej skickad</span>}
+
+                <button type="button" className="btn btn-secondary flex items-center gap-1" onClick={() => window.print()}>
+                  <FileText size={16} /> Skriv ut
+                </button>
             </div>
           </div>
         )}
-      </div>
+        </SectionCard>
 
-      {/* Order */}
-      <div className="mb-4">
-        <p className="font-semibold">📑 Orderbekräftelse (PDF):</p>
+        {/* Order Card */}
+        <SectionCard title="📑 Orderbekräftelse" right={
+          <span className={`text-xs px-2 py-0.5 rounded-full ${sentStatus["order"] ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
+            {sentStatus["order"] ? `Skickad ${sentStatus["order"]}` : "Utkast"}
+          </span>
+        }>
         <input
           type="file"
           accept="application/pdf"
           onChange={(e) => handleSpecialUpload(e, "order")}
-          className="text-blue-700 font-semibold cursor-pointer"
+            className="text-blue-700 font-semibold cursor-pointer mb-4 w-full"
         />
         {order && (
-          <div className="mt-2 space-y-2">
+            <div className="space-y-2">
             <div className="flex justify-between items-center">
               <p className="text-sm text-blue-600">📎 {order.name}</p>
               <button
@@ -1263,29 +1418,79 @@ Signatur:
                 🗑️ Ta bort
               </button>
             </div>
-            <iframe src={order.url} className="w-full h-64 border rounded" title="Order PDF"></iframe>
-            <div className="flex gap-2 mt-2">
-              <button onClick={() => skickaEpost(order.url, "order")} className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">
-                📤 Skicka
-              </button>
-              <button onClick={() => printPdf(order.url)} className="bg-gray-300 px-3 py-1 rounded hover:bg-gray-400">🖨️ Skriv ut</button>
-              {sentStatus["order"] && <p className="text-green-600 text-sm">✔️ Skickad {sentStatus["order"]}</p>}
-            </div>
-          </div>
+                        </div>
         )}
-      </div>
+        
+   {/* Order PDF Preview */}
+{orderPdfUrl ? (
+  <div className="space-y-2">
+    <div className="flex justify-between items-center">
+      <p className="text-sm text-blue-600">📎 Orderbekräftelse</p>
+      <button
+        onClick={() => {
+          setOrderPdfUrl(null);
+          save({ orderCreated: false });
+        }}
+        className="text-red-600 text-sm font-semibold hover:underline"
+      >
+        🗑️ Ta bort
+              </button>
+            </div>
 
-      {/* Faktura */}
-      <div className="mb-4">
-        <p className="font-semibold">💰 Faktura (PDF):</p>
+    {/* exakt samma mått som offerten */}
+    <iframe
+      src={orderPdfUrl + "#toolbar=0"}
+      className="w-full h-96 border rounded"
+      title="Order PDF"
+    />
+          </div>
+) : (
+  <div>Ingen orderbekräftelse skapad ännu.</div>
+)}
+        
+        {/* ORDER – knapprad, alltid synlig */}
+        <div className="flex items-center gap-3 mt-2" data-testid="order-actions">
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={handleCreateOrder}
+            disabled={orderLoading}
+            title="Skapa order"
+          >
+            {orderLoading ? 'Skapar...' : 'Skapa order'}
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={async () => { await fakeWait(); await save({ orderSent: true }); }}
+            disabled={!status.orderCreated}
+            title="Skicka order"
+          >
+            Skicka
+          </button>
+
+          <div className="flex items-center gap-3">
+            {status.orderCreated && <span className="text-green-600">✓ Skapad</span>}
+            {status.orderSent ? <span className="text-green-600">✓ Skickad</span> : <span className="text-red-600">✗ Ej skickad</span>}
+          </div>
+        </div>
+        </SectionCard>
+
+        {/* Faktura Card */}
+        <SectionCard title="💰 Faktura" right={
+          <span className={`text-xs px-2 py-0.5 rounded-full ${sentStatus["invoice"] ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
+            {sentStatus["invoice"] ? `Skickad ${sentStatus["invoice"]}` : "Utkast"}
+          </span>
+        }>
         <input
           type="file"
           accept="application/pdf"
           onChange={(e) => handleSpecialUpload(e, "invoice")}
-          className="text-blue-700 font-semibold cursor-pointer"
+            className="text-blue-700 font-semibold cursor-pointer mb-4 w-full"
         />
         {invoice && (
-          <div className="mt-2 space-y-2">
+            <div className="space-y-2">
             <div className="flex justify-between items-center">
               <p className="text-sm text-blue-600">📎 {invoice.name}</p>
               <button
@@ -1296,19 +1501,75 @@ Signatur:
               </button>
             </div>
             <iframe src={invoice.url} className="w-full h-64 border rounded" title="Faktura PDF"></iframe>
-            <div className="flex gap-2 mt-2">
-              <button onClick={() => skickaEpost(invoice.url, "invoice")} className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">
-                📤 Skicka
-              </button>
-              <button onClick={() => printPdf(invoice.url)} className="bg-gray-300 px-3 py-1 rounded hover:bg-gray-400">🖨️ Skriv ut</button>
-              {sentStatus["invoice"] && <p className="text-green-600 text-sm">✔️ Skickad {sentStatus["invoice"]}</p>}
-            </div>
           </div>
         )}
+        
+        {/* FAKTURA – knapprad, alltid synlig */}
+        <div className="flex flex-col gap-2 mt-2" data-testid="invoice-actions">
+          <div className="flex items-center gap-3">
+                      <button
+              type="button"
+              className="btn btn-outline"
+              onClick={async () => { await fakeWait(); await save({ invoiceCreated: true }); }}
+              title="Skapa faktura"
+            >
+              Skapa faktura
+                      </button>
+
+                      <button
+              type="button"
+              className="btn btn-primary"
+              onClick={async () => {
+                await fakeWait(); // skicka faktura
+                await fakeWait(); // skicka till bokföring
+                await save({ invoiceSent: true, invoicePosted: true });
+              }}
+              disabled={!status.invoiceCreated}
+              title="Skicka faktura"
+            >
+              Skicka
+                      </button>
+
+            {status.invoiceSent
+              ? <span className="text-green-600">✓ Skickad</span>
+              : <span className="text-red-600">✗ Ej skickad</span>}
+          </div>
+
+          <div className="text-sm">
+            {status.invoicePosted
+              ? <span className="text-green-600">✓ Skickad till bokföringen</span>
+              : <span className="text-gray-600">✗ Inte skickad till bokföringen</span>}
+          </div>
+        </div>
+      </SectionCard>
       </div>
 
-      {/* 📚 Bokföring */}
-      <h2 className="text-xl font-bold mt-8">📚 Bokföring</h2>
+      {/* Offerter */}
+      <OfferRealtime customerId={String(id)} />
+      <OfferList customerId={String(id)} />
+
+      {/* Bilder och kladdlappar */}
+      <SectionCard title="📷 Bilder och kladdlappar">
+        <input type="file" accept="image/*" multiple onChange={handleImageUpload} className="mt-2 mb-4 text-blue-700 font-semibold cursor-pointer" />
+        <div className="grid grid-cols-2 gap-4">
+          {images.map((img, idx) => (
+            <div key={idx} className="border p-2 rounded shadow relative">
+              <img src={img.url} alt={img.name} className="w-full h-auto rounded" />
+              <p className="text-xs mt-1 break-all">{img.name}</p>
+              <button
+                onClick={() => deleteImage(idx)}
+                className="absolute top-1 right-1 text-red-600 text-sm font-bold bg-white px-2 py-0.5 rounded"
+                title="Ta bort bild"
+              >
+                🗑️
+              </button>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      {/* Bokföring */}
+      <SectionCard title="📚 Bokföring">
       <p className="text-sm text-gray-700 mb-2">Ladda upp kvitton (bild) eller underlag (PDF). Allt sparas lokalt för kunden.</p>
       <input
         type="file"
@@ -1317,7 +1578,7 @@ Signatur:
         onChange={handleBookkeepingUpload}
         className="text-blue-700 font-semibold cursor-pointer mb-4"
       />
-      <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="grid grid-cols-2 gap-4">
         {bookkeepingFiles.map((f, idx) => (
           <div key={idx} className="border p-2 rounded shadow relative">
             {f.type === "image" ? (
@@ -1336,167 +1597,23 @@ Signatur:
           </div>
         ))}
       </div>
+      </SectionCard>
 
-      <textarea name="notes" value={data.notes} onChange={handleChange} placeholder="Anteckningar..." rows={6} className="w-full border p-3 rounded mb-4" />
-
-      {/* === Offerttext (om den finns) === */}
+      {/* Offerttext (om den finns) */}
       {data.offerText && (
-        <div className="mb-6">
-          <h2 className="text-xl font-bold mb-4">📄 Offerttext från chatten</h2>
+        <SectionCard title="📄 Offerttext från chatten">
           <div className="border p-4 rounded bg-gray-50">
             <pre className="whitespace-pre-wrap text-sm font-mono">{data.offerText}</pre>
           </div>
-        </div>
+        </SectionCard>
       )}
 
-      {/* === GPT-offertförhandsvisning === */}
-      {gptOfferPreview && (
-        <div className="mb-6">
-          <h2 className="text-xl font-bold mb-4">🤖 GPT-offertförhandsvisning</h2>
-          <div className="border p-4 rounded bg-blue-50">
-            <pre className="whitespace-pre-wrap text-sm">{gptOfferPreview}</pre>
-            {gptOfferPdfUrl && (
-              <div className="mt-4 flex gap-2">
-                <a 
-                  href={gptOfferPdfUrl} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-                >
-                  📄 Öppna PDF
-                </a>
-                <button 
-                  onClick={() => printPdf(gptOfferPdfUrl)} 
-                  className="bg-gray-300 px-4 py-2 rounded hover:bg-gray-400"
-                >
-                  🖨️ Skriv ut
-                </button>
-                <a 
-                  href={getCustomerCardUrl()}
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-                >
-                  ➡️ Öppna kundkortet
-                </a>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* === Testfunktion för GPT-offert === */}
-      <div className="mb-6">
-        <h2 className="text-xl font-bold mb-4">🔍 Testfunktioner</h2>
-        <div className="border p-4 rounded bg-yellow-50">
-          <p className="text-sm text-gray-700 mb-3">Testa GPT-offertsvar hantering med hårdkodat exempel:</p>
-          <button 
-            onClick={testGptResponse}
-            className="bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700 font-semibold"
-          >
-            🔍 Testa GPT-offert
-          </button>
-        </div>
-      </div>
-
-      {/* === Dokumentflöde === */}
-      <div className="mb-6">
-        <h2 className="text-xl font-bold mb-4">📄 Dokumentflöde</h2>
-        
-        {/* Dokumentlista */}
-        <div className="mb-4">
-          <h3 className="text-lg font-semibold mb-2">Befintliga dokument:</h3>
-          {loadingDocuments ? (
-            <p className="text-gray-500">Laddar dokument...</p>
-          ) : documents.length === 0 ? (
-            <p className="text-gray-500">Inga dokument ännu</p>
-          ) : (
-            <div className="space-y-2">
-              {documents.map((doc) => (
-                <div key={doc.id} className="border p-3 rounded bg-gray-50">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="font-semibold">
-                        {doc.type === 'offert' && '🧾'} 
-                        {doc.type === 'order' && '📑'} 
-                        {doc.type === 'faktura' && '💰'} 
-                        {doc.title}
-                      </p>
-                      <p className="text-sm text-gray-600">
-                        {doc.amount} {doc.currency} • {new Date(doc.created_at).toLocaleDateString('sv-SE')}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      {doc.type === 'offert' && (
-                        <button
-                          onClick={() => createOrderConfirmation()}
-                          className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700"
-                        >
-                          📑 Skapa orderbekräftelse
-                        </button>
-                      )}
-                      {doc.type === 'order' && (
-                        <button
-                          onClick={() => createInvoice()}
-                          className="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700"
-                        >
-                          💰 Skapa faktura
-                        </button>
-                      )}
-                      {doc.type === 'faktura' && (
-                        <button
-                          onClick={() => sendToBookkeeping()}
-                          className="bg-purple-600 text-white px-3 py-1 rounded text-sm hover:bg-purple-700"
-                        >
-                          📤 Skicka till bokföring
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Snabbknappar för dokumentflöde */}
-        <div className="border p-4 rounded bg-blue-50">
-          <h3 className="text-lg font-semibold mb-3">Dokumentflöde:</h3>
-          <div className="flex flex-wrap gap-2 mb-3">
-            <span className="text-sm text-gray-600">🧾 Offert → 📑 Orderbekräftelse → 💰 Faktura → 📤 Bokföring</span>
-          </div>
-          
-          {/* Snabbknappar för att skapa nästa dokument i kedjan */}
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => createOrderConfirmation()}
-              className="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700"
-            >
-              📑 Skapa orderbekräftelse från senaste offert
-            </button>
-            <button
-              onClick={() => createInvoice()}
-              className="bg-green-600 text-white px-3 py-2 rounded text-sm hover:bg-green-700"
-            >
-              💰 Skapa faktura från senaste order
-            </button>
-            <button
-              onClick={() => sendToBookkeeping()}
-              className="bg-purple-600 text-white px-3 py-2 rounded text-sm hover:bg-purple-700"
-            >
-              📤 Skicka senaste faktura till bokföring
-            </button>
-          </div>
-          
-          <p className="text-xs text-gray-500 mt-2">
-            Snabbknappar skapar nästa dokument i kedjan automatiskt från senaste dokumentet av rätt typ
-          </p>
-        </div>
-      </div>
-
-      <div className="flex gap-4 mt-6">
-        <Link href="/dashboard"><button className="bg-gray-300 hover:bg-gray-400 text-black px-4 py-2 rounded">← Tillbaka</button></Link>
-      </div>
+      {/* Notes */}
+      <SectionCard title="Anteckningar">
+        <textarea name="notes" value={data.notes} onChange={handleChange} placeholder="Anteckningar..." rows={6} className="w-full border p-3 rounded" />
+      </SectionCard>
     </div>
   );
 }
+
+

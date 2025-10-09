@@ -93,48 +93,7 @@ function extractCustomerDetails(raw: any) {
   return { name, orgnr, email, phone, address };
 }
 
-async function createPdfFromOffer(body: Required<Pick<OfferBody,"customerId">> & OfferBody, parsedData?: any) {
-  const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([595.28, 841.89]); // A4
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-
-  const marginX = 50;
-  let y = 800;
-  const draw = (text: string, bold = false, size = 12, color = rgb(0,0,0)) => {
-    const usedFont = bold ? fontBold : font;
-    page.drawText(String(text), { x: marginX, y, size, font: usedFont, color });
-    y -= size + 8;
-  };
-
-  // Header
-  draw("OFFERT", true, 20);
-  draw(new Date().toLocaleString(), false, 10, rgb(0.4,0.4,0.4));
-  y -= 6;
-
-  // Grunddata
-  draw(`Kundkort / Customer ID: ${body.customerId}`, false, 12);
-  draw(`Titel: ${body.title ?? "Offert"}`, false, 12);
-  draw(`Belopp: ${String(body.amount ?? 0)} ${body.currency ?? "SEK"}`, false, 12);
-  draw(`Markerad för papperskopia: ${Boolean(body.needsPrint ?? false) ? "Ja" : "Nej"}`, false, 12);
-
-  // Kort summering av dataJson
-  y -= 10; draw("Sammanfattning av data:", true, 12);
-  try {
-    const clone = parsedData ?? {};
-    const keys = Object.keys(clone).slice(0, 12);
-    for (const k of keys) {
-      if (y < 60) break;
-      const v = typeof clone[k] === "object" ? JSON.stringify(clone[k]) : String(clone[k]);
-      const line = `${k}: ${v}`.slice(0, 110);
-      draw(line, false, 10);
-    }
-  } catch {
-    draw("Kunde inte serialisera data.", false, 10);
-  }
-
-  return pdfDoc.save();
-}
+import { buildDocument } from '@/lib/pdf/buildDocument';
 
 export async function GET() {
   if (isProd) {
@@ -214,7 +173,7 @@ export async function POST(req: Request) {
     const currency = String(body.currency ?? "SEK");
     const needs_print = Boolean(body.needsPrint ?? false);
 
-    const pdfBytes = await createPdfFromOffer({ ...body, amount, title, currency, needsPrint: needs_print }, data);
+    const pdfBytes = await buildDocument({ ...body, amount, title, currency, needsPrint: needs_print, data }, 'offer');
 
     const offerId = crypto.randomUUID();
     const storageBucket = "paperflow-files";

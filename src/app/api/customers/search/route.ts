@@ -1,40 +1,50 @@
 import { NextResponse } from "next/server";
 
-type SearchCustomerBody = {
-  companyName?: string;
-  email?: string;
-  orgNr?: string;
-  phone?: string;
-};
-
 function bad(msg: string, code = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status: code });
 }
 
+interface Customer {
+  id: string;
+  companyName?: string;
+  orgNr?: string;
+  contactPerson?: string;
+  role?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  zip?: string;
+  city?: string;
+  country?: string;
+  notes?: string;
+  customerNumber?: string;
+  contactDate?: string;
+  offers?: any[];
+}
+
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as SearchCustomerBody;
-    
-    if (!body?.companyName && !body?.email && !body?.orgNr && !body?.phone) {
-      return bad("At least one search criteria required");
+    const body = await req.json();
+    const { query } = body;
+
+    if (!query) {
+      return bad("Missing search query");
     }
 
-    // Simulera sökning i kundregister
-    // I en riktig app skulle detta vara en databas-sökning
-    const searchResults = [];
+    // 🔎 Simulerad kundsökning (byt mot riktig databas senare)
+    const searchResults: Customer[] = [];
 
-    // Här skulle vi söka i databasen efter matchande kunder
-    // För nu returnerar vi tom array för att simulera att ingen kund hittades
-    // Men strukturen är redo för riktig implementering
+    // Här skulle du söka i databasen efter matchande kunder baserat på `query`
+    // Just nu returnerar vi alltid en tom array för att simulera "ingen träff"
 
-    return NextResponse.json({
-      ok: true,
-      customers: searchResults,
-      message: searchResults.length > 0 
-        ? `${searchResults.length} kund(er) hittade` 
-        : "Ingen matchande kund hittades"
-    }, { status: 200 });
-
+    return NextResponse.json(
+      {
+        ok: true,
+        results: searchResults,
+        total: searchResults.length,
+      },
+      { status: 200 }
+    );
   } catch (e: any) {
     return bad(e?.message ?? "Unknown error", 500);
   }

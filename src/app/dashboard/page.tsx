@@ -150,7 +150,7 @@ async function compressImageToBlob(file: File): Promise<Blob> {
 }
 
 // =========================
-// OCR + PARSERS (svenska kvitton)
+// OCR + PARSERS (svenska kvitton) — removed OCR calls
 // =========================
 
 /** Normalisera tal som "1 234,50" / "1.234,50" / "1234.50" → 1234.50 */
@@ -363,50 +363,10 @@ function parseAmounts(text: string): { amountIncl?: number; vatAmount?: number }
   return { amountIncl, vatAmount };
 }
 
-/** OpenAI Vision API OCR med bildkvalitetskontroll */
-async function ocrAllTextFromBlob(blob: Blob): Promise<string> {
-  try {
-    // Konvertera blob till base64
-    const base64 = await new Promise<string>((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        resolve(result.split(',')[1]); // Ta bort "data:image/...;base64,"
-      };
-      reader.readAsDataURL(blob);
-    });
-
-    // 1. Först kontrollera bildkvalitet
-    const qualityResponse = await fetch('/api/image-quality', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: base64 })
-    });
-
-    if (qualityResponse.ok) {
-      const qualityData = await qualityResponse.json();
-      if (!qualityData.passed) {
-        throw new Error(`Bildkvalitet otillräcklig: ${qualityData.issues.join(', ')}`);
-      }
-    }
-
-    // 2. Om kvaliteten är OK, kör OCR
-    const response = await fetch('/api/openai-ocr', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: base64 })
-    });
-
-    if (!response.ok) {
-      throw new Error('OCR API failed');
-    }
-
-    const data = await response.json();
-    return data.text || '';
-  } catch (error) {
-    console.error('OCR Error:', error);
-    throw error; // Kasta vidare felet så användaren får feedback
-  }
+/** OCR borttagen: Placeholder som returnerar tom text tills eventuell ersättning (t.ex. GPT) */
+async function ocrAllTextFromBlob(_blob: Blob): Promise<string> {
+  // TODO: Här fanns OCR. Ersätt med ny strategi vid behov.
+  return '';
 }
 
 /** Huvud: OCR → tolka → skriv in i state */
@@ -543,31 +503,8 @@ useEffect(() => {
   useEffect(() => {
     if (!isClient) return;
     if (batchOcrRunning) return;
-    const todo = entries.filter(e => (!e.supplierName || e.supplierName === 'Okänd') && e.fileKey && (e.fileMime?.startsWith('image/')));
-    if (todo.length === 0) return;
-
-    (async () => {
-      setBatchOcrRunning(true);
-      try {
-        const next = [...entries];
-        for (const e of todo) {
-          const blob = await idbGet(e.fileKey!);
-          if (!blob) continue;
-          const text = await ocrAllTextFromBlob(blob);
-          const name = postprocessSupplier(pickKnownSupplier(text) || guessSupplierFromTopLines(text) || null, text);
-          if (name) {
-            const idx = next.findIndex(x => x.id === e.id);
-            if (idx !== -1) next[idx] = { ...next[idx], supplierName: name };
-          }
-        }
-        if (JSON.stringify(next) !== JSON.stringify(entries)) {
-          localStorage.setItem(BK_KEY, JSON.stringify(next));
-          setEntries(next);
-        }
-      } finally {
-        setBatchOcrRunning(false);
-      }
-    })();
+    // OCR borttagen: hoppa över automatisk leverantörsupplockning från bilder
+    return;
   }, [entries, isClient, batchOcrRunning]);
 
   useEffect(() => {
@@ -709,8 +646,7 @@ useEffect(() => {
       const blob = await compressImageToBlob(f);
       setPendingBlob(blob);
       setPendingMime('image/jpeg');
-      setOcrRunning(true);
-      await readAndAutofillFromBlob(blob, { setSupplierName, setAmount, setVat, setDate });
+      // OCR borttagen: inget autofyll från bild
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Kunde inte läsa bilden.';
       setQualityError(errorMessage);
@@ -729,8 +665,7 @@ useEffect(() => {
       if (f.type.startsWith('image/')) {
         const blob = await compressImageToBlob(f);
         setPendingBlob(blob); setPendingMime('image/jpeg');
-        setOcrRunning(true);
-        await readAndAutofillFromBlob(blob, { setSupplierName, setAmount, setVat, setDate });
+        // OCR borttagen: ingen autofyll
       } else {
         const buf = await f.arrayBuffer();
         const blob = new Blob([buf], { type: f.type || 'application/pdf' });

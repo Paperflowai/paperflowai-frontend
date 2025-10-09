@@ -77,51 +77,7 @@ function calcAmountFromData(data: any): number | undefined {
   }
 }
 
-async function createPdfFromOffer(body: OfferBody): Promise<Uint8Array> {
-  const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([595.28, 841.89]); // A4
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-
-  const marginX = 50;
-  let y = 800;
-
-  const draw = (text: string, bold = false, size = 12, color = rgb(0, 0, 0)) => {
-    const usedFont = bold ? fontBold : font;
-    page.drawText(String(text), { x: marginX, y, size, font: usedFont, color });
-    y -= size + 8;
-  };
-
-  // Header
-  draw("OFFERT", true, 20);
-  draw(new Date().toLocaleString(), false, 10, rgb(0.4, 0.4, 0.4));
-  y -= 6;
-
-  // Grunddata
-  draw(`Kundkort / Customer ID: ${body.customerId}`, false, 12);
-  draw(`Titel: ${body.title ?? "Offert"}`, false, 12);
-  draw(`Belopp: ${String(body.amount ?? 0)} ${body.currency ?? "SEK"}`, false, 12);
-  draw(`Markerad för papperskopia: ${Boolean(body.needsPrint ?? false) ? "Ja" : "Nej"}`, false, 12);
-
-  y -= 10;
-  draw("Sammanfattning av data:", true, 12);
-
-  // Lista nycklar från data
-  try {
-    const clone = JSON.parse(JSON.stringify(body.data ?? {}));
-    const keys = Object.keys(clone).slice(0, 12);
-    for (const k of keys) {
-      if (y < 60) break;
-      const v = typeof clone[k] === "object" ? JSON.stringify(clone[k]) : String(clone[k]);
-      const line = `${k}: ${v}`.slice(0, 110);
-      draw(line, false, 10);
-    }
-  } catch {
-    draw("Kunde inte serialisera data.", false, 10);
-  }
-
-  return pdfDoc.save();
-}
+import { buildDocument } from '@/lib/pdf/buildDocument';
 
 export async function POST(req: Request) {
   try {
@@ -170,7 +126,7 @@ export async function POST(req: Request) {
     const needs_print = Boolean(body.needsPrint ?? false);
 
     // 4) Skapa PDF
-    const pdfBytes = await createPdfFromOffer({ ...body, amount });
+    const pdfBytes = await buildDocument({ ...body, amount }, 'offer');
 
     // 5) Storage-path
     const offerId = crypto.randomUUID();
