@@ -67,7 +67,6 @@ async function updateCustomerBestEffort(
 ) {
   if (!fields || !Object.keys(fields).length) return null;
 
-  // Läs befintlig kundrad för att se vilka kolumner som finns
   const cur = await admin
     .from("customers")
     .select("*")
@@ -76,7 +75,6 @@ async function updateCustomerBestEffort(
 
   const cols: string[] = cur.data ? Object.keys(cur.data) : [];
 
-  // Synonymer -> välj det kolumnnamn som faktiskt finns i din tabell
   const synonyms: Record<string, string[]> = {
     name: ["name","namn","företagsnamn","company_name"],
     email: ["email","e_post","e-post","epost"],
@@ -102,7 +100,7 @@ async function updateCustomerBestEffort(
     .update(payload)
     .or(`id.eq.${customerId},slug.eq.${customerId}`);
 
-  return payload; // <- exakta DB-kolumner som uppdaterades
+  return payload;
 }
 
 /** Robust insert som provar olika fältnamn tills det går igenom. */
@@ -163,13 +161,12 @@ async function smartInsertDocument(base: {
   return { error: lastErr };
 }
 
-export async function POST(
-  req: Request,
-  ctx: { params: { id: string } },
-) {
-  const customerId = decodeURIComponent(ctx.params.id || "");
-  if (!customerId)
+// ⬇️ Viktigt för Next 15: context måste typas som "any"
+export async function POST(req: Request, context: any) {
+  const customerId = decodeURIComponent(context?.params?.id ?? "");
+  if (!customerId) {
     return NextResponse.json({ error: "missing customer id" }, { status: 400 });
+  }
 
   // --- form & file
   let form: FormData;
@@ -185,37 +182,35 @@ export async function POST(
     return NextResponse.json({ error: "PDF only" }, { status: 415 });
 
   // --- storage
-  try {
-    await admin.storage.createBucket(BUCKET, { public: true });
-  } catch {}
-  try {
-    await admin.storage.updateBucket(BUCKET, { public: true });
-  } catch {}
+  try { await admin.storage.createBucket(BUCKET, { public: true }); } catch {}
+  try { await admin.storage.updateBucket(BUCKET, { public: true }); } catch {}
 
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const filename = clean(file.name);
   const key = `${customerId}/${ts}-${filename}`; // storage_path
   const buf = Buffer.from(await file.arrayBuffer());
 
-  const up = await admin
-    .storage
-    .from(BUCKET)
-    .upload(key, buf, { contentType: file.type, upsert: true });
-  if (up.error)
+  const up = await admin.storage.from(BUCKET).upload(key, buf, {
+    contentType: file.type,
+    upsert: true,
+  });
+  if (up.error) {
     return NextResponse.json(
       { error: up.error.message, where: "storage.upload" },
-      { status: 500 },
+      { status: 500 }
     );
+  }
 
   // public URL eller signed
   let url = admin.storage.from(BUCKET).getPublicUrl(key).data.publicUrl;
   if (!url) {
     const s = await admin.storage.from(BUCKET).createSignedUrl(key, 60 * 60 * 24);
-    if (s.error)
+    if (s.error) {
       return NextResponse.json(
         { error: s.error.message, where: "storage.signedUrl" },
-        { status: 500 },
+        { status: 500 }
       );
+    }
     url = s.data?.signedUrl || "";
   }
 
@@ -227,27 +222,29 @@ export async function POST(
     filename,
     bucket: BUCKET,
   });
-  if (ins.error)
+  if (ins.error) {
     return NextResponse.json(
       { error: ins.error.message, where: "insert.documents" },
-      { status: 500 },
+      { status: 500 }
     );
+  }
 
   // --- (valfritt) extrahera kundfält och uppdatera customers – stoppar aldrig upload
   let patched: any = null;
   let applied: any = null;
-  try {
-    const text = await extractText(buf);
-    if (text) {
-      patched = pickCustomerFields(text);
-      applied = await updateCustomerBestEffort(customerId, patched);
-    }
-  } catch {}
+  const text = await extractText(buf);
+  if (text) {
+    patched = pickCustomerFields(text);
+    applied = await updateCustomerBestEffort(customerId, patched);
+  }
 
   const debug = {
     extractEnabled: process.env.EXTRACT_FROM_PDF === "true",
-    parsedChars: (await extractText(buf))?.length || 0,
+    parsedChars: text?.length || 0,
   };
 
-  return NextResponse.json({ ok: true, offer: ins.data, patched, applied, debug }, { status: 201 });
+  return NextResponse.json(
+    { ok: true, offer: ins.data, patched, applied, debug },
+    { status: 201 }
+  );
 }
