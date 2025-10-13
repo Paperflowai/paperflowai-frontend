@@ -1,76 +1,86 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { exportInvoiceToBookkeeping } from "@/lib/bookkeeping";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { invoiceId: string } }
-) {
+const SUPABASE_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL!;
+const SERVICE_ROLE =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE!;
+
+const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, {
+  auth: { persistSession: false },
+});
+
+export async function POST(_req: Request, context: any) {
+  const invoiceId = decodeURIComponent(context?.params?.invoiceId ?? "");
+  if (!invoiceId) {
+    return NextResponse.json({ error: "Invoice ID required" }, { status: 400 });
+  }
+
   try {
-    const { invoiceId } = params;
-    
-    if (!invoiceId) {
-      return NextResponse.json({ error: "Invoice ID required" }, { status: 400 });
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    
-    // Get invoice details
+    // Hämta faktura
     const { data: invoice, error: fetchError } = await supabase
-      .from('invoices')
-      .select('*')
-      .eq('id', invoiceId)
+      .from("invoices")
+      .select("*")
+      .eq("id", invoiceId)
       .single();
 
     if (fetchError || !invoice) {
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
     }
 
-    // Get customer details
+    // Hämta kund (valfritt)
     const { data: customer } = await supabase
-      .from('customers')
-      .select('company_name, contact_person')
-      .eq('id', invoice.customer_id)
-      .single();
+      .from("customers")
+      .select("company_name, contact_person")
+      .eq("id", invoice.customer_id)
+      .maybeSingle();
 
+    // Paketera data till export
     const invoiceData = {
       id: invoice.id,
       number: invoice.number,
-      customer_name: customer?.company_name || '',
-      contact_person: customer?.contact_person || '',
-      total: invoice.total,
-      vat_total: invoice.vat_total,
-      due_date: invoice.due_date,
-      pdf_url: invoice.pdf_url,
-      data: invoice.data,
+      customer_name: customer?.company_name || "",
+      contact_person: customer?.contact_person || "",
+      total: invoice.total ?? invoice.grand_total ?? null,
+      vat_total: invoice.vat_total ?? null,
+      due_date: invoice.due_date ?? null,
+      pdf_url: invoice.pdf_url ?? invoice.url ?? null,
+      data: invoice.data ?? null,
     };
 
-    // Export to bookkeeping
+    // Exportera till bokföring
     const exportResult = await exportInvoiceToBookkeeping(invoiceData);
-
-    if (!exportResult.ok) {
-      return NextResponse.json({ error: "Failed to export to bookkeeping" }, { status: 500 });
+    if (!exportResult?.ok) {
+      return NextResponse.json(
+        { error: "Failed to export to bookkeeping" },
+        { status: 500 }
+      );
     }
 
-    // Update invoice status
+    // Uppdatera status på fakturan
     const { data: updatedInvoice, error: updateError } = await supabase
-      .from('invoices')
-      .update({ status: 'exported' })
-      .eq('id', invoiceId)
+      .from("invoices")
+      .update({ status: "exported" })
+      .eq("id", invoiceId)
       .select()
       .single();
 
     if (updateError) {
-      console.error('Update error:', updateError);
-      return NextResponse.json({ error: "Failed to update invoice status" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Failed to update invoice status" },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ ok: true, invoice: updatedInvoice });
-  } catch (error) {
-    console.error('API error:', error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error?.message || "Internal server error" },
+      { status: 500 }
+    );
   }
 }
