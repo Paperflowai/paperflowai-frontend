@@ -1,21 +1,35 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL!;
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const SUPABASE_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL!;
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
+  auth: { persistSession: false },
+});
 
 async function safeSelect(table: string, customerId: string, want: number) {
   try {
-    let q = admin.from(table).select("*").eq("customer_id", customerId).order("created_at", { ascending: false }).limit(want);
-    const { data, error } = await q;
+    const { data, error } = await admin
+      .from(table)
+      .select("*")
+      .eq("customer_id", customerId)
+      .order("created_at", { ascending: false })
+      .limit(want);
     if (error) throw error;
     return data ?? [];
-  } catch (e: any) {
-    // Fallback: utan order (om kolumn saknas) eller om tabellen inte finns → tom lista
-   try {
-      const { data, error } = await admin.from(table).select("*").eq("customer_id", customerId).limit(want);
+  } catch {
+    // Fallback: utan order (om kolumn saknas) eller om tabellen inte finns
+    try {
+      const { data, error } = await admin
+        .from(table)
+        .select("*")
+        .eq("customer_id", customerId)
+        .limit(want);
       if (error) return [];
       return data ?? [];
     } catch {
@@ -24,10 +38,28 @@ async function safeSelect(table: string, customerId: string, want: number) {
   }
 }
 
-function norm(table: "offers"|"orders"|"invoices", rows: any[]) {
+function norm(
+  table: "offers" | "orders" | "invoices",
+  rows: any[]
+): Array<{
+  id: any;
+  table: "offers" | "orders" | "invoices";
+  number: any;
+  date: any;
+  amount: any;
+  status: any;
+  url: any;
+}> {
   return rows.map((r) => {
-    const number = r.number ?? r.no ?? r.invoice_number ?? r.order_number ?? r.offer_number ?? null;
-    const date = r.created_at ?? r.date ?? r.issued_at ?? r.invoice_date ?? r.order_date ?? null;
+    const number =
+      r.number ??
+      r.no ??
+      r.invoice_number ??
+      r.order_number ??
+      r.offer_number ??
+      null;
+    const date =
+      r.created_at ?? r.date ?? r.issued_at ?? r.invoice_date ?? r.order_date ?? null;
     const amount = r.total_amount ?? r.amount ?? r.total ?? r.grand_total ?? null;
     const status = r.status ?? r.state ?? null;
     const url = r.url ?? r.pdf_url ?? r.file_url ?? null;
@@ -35,9 +67,15 @@ function norm(table: "offers"|"orders"|"invoices", rows: any[]) {
   });
 }
 
-export async function GET(_req: Request, ctx: { params: { id: string } }) {
-  const customerId = decodeURIComponent(ctx.params.id);
+// Viktigt för Next 15: 2:a argumentet ska vara "any"
+export async function GET(_req: Request, context: any) {
+  const customerId = decodeURIComponent(context?.params?.id ?? "");
+  if (!customerId) {
+    return NextResponse.json({ error: "missing customer id" }, { status: 400 });
+  }
+
   const want = 5;
+
   async function listOfferDocs(customerId: string, want: number) {
     let rows: any[] = [];
     try {
@@ -50,6 +88,7 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
         .limit(want);
       if (!q.error) rows = q.data || [];
     } catch {}
+
     if (!rows.length) {
       try {
         const q2 = await admin
@@ -72,7 +111,7 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
       }
       return {
         id: r.id,
-        table: "offers",
+        table: "offers" as const,
         number: r.number ?? null,
         date: r.created_at ?? r.date ?? null,
         amount: r.total_amount ?? r.amount ?? null,
@@ -87,7 +126,6 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
     safeSelect("orders", customerId, want).then((x) => norm("orders", x)),
     safeSelect("invoices", customerId, want).then((x) => norm("invoices", x)),
   ]);
+
   return NextResponse.json({ offers, orders, invoices });
 }
-
-
