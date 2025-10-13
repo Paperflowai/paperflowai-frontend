@@ -14,7 +14,7 @@ export interface DocumentData {
 }
 
 // Gemensam builder som renderar React-PDF-komponenten till riktiga bytes
-export default async function buildDocument(
+export async function buildDocument(
   data: DocumentData,
   variant: DocumentVariant
 ): Promise<Uint8Array> {
@@ -51,3 +51,6 @@ export default async function buildDocument(
   // Gör om Node Buffer → Uint8Array utan kopiering
   return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 }
+
+// Default export för bakåtkompatibilitet
+export default buildDocument;

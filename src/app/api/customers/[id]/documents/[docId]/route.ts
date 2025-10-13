@@ -14,10 +14,11 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
   auth: { persistSession: false },
 });
 
-// Viktigt: 2:a argumentet typas som "any" för att matcha Next 15.
-export async function DELETE(req: Request, { params }: any) {
-  const customerId = decodeURIComponent(params?.id ?? "");
-  const docId = decodeURIComponent(params?.docId ?? "");
+// Viktigt i Next 15: 2:a argumentet typas som "any"
+export async function DELETE(req: Request, context: any) {
+  const params = context?.params ?? {};
+  const customerId = decodeURIComponent(String(params.id ?? params.customerId ?? ""));
+  const docId = decodeURIComponent(String(params.docId ?? params.id ?? ""));
 
   if (!docId) {
     return NextResponse.json({ error: "missing docId" }, { status: 400 });
