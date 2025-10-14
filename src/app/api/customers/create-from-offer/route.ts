@@ -1,15 +1,19 @@
-import { NextResponse } from 'next/server';
-import { supabaseAdmin as admin } from '@/lib/supabaseServer';
-import buildDocument from '@/lib/pdf/buildDocument';
+import { NextResponse } from "next/server";
+import { supabaseAdmin as admin } from "@/lib/supabaseServer";
+// Robust import som funkar oavsett om buildDocument är default- eller named-export
+import * as pdf from "@/lib/pdf/buildDocument";
+const buildDocument = (pdf as any).buildDocument ?? (pdf as any).default;
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function err(where: string, message: string, status = 500) {
   console.error(`[${where}]`, message);
   return NextResponse.json({ ok: false, where, message }, { status });
 }
 
-// ← Byt detta ENDA ORD om din offert använder en annan bucket.
-// Av dina loggar (“Downloading offer from: offers/...”) verkar bucketen heta 'offers'.
-const BUCKET = 'offers';
+// Byt vid behov – av dina loggar verkar bucketen heta 'offers'.
+const BUCKET = "offers";
 
 interface Customer {
   id: string;
@@ -24,30 +28,31 @@ interface Customer {
   [k: string]: any;
 }
 
-export async function POST(req: Request) {
+// Viktigt: Next 15 vill att 2:a argumentet typas som "any" i dynamiska routes
+export async function POST(req: Request, { params }: any) {
   try {
     const body = await req.json();
     const offer = body?.offer;
 
-    if (!offer) return err('validate', 'Missing offer data', 400);
-    if (!offer.email) return err('validate', 'Missing customer email in offer', 400);
+    if (!offer) return err("validate", "Missing offer data", 400);
+    if (!offer.email) return err("validate", "Missing customer email in offer", 400);
 
-    // 1) Hämta/korrigera kund
+    // 1) Hämta/korrigera kund via e-post
     const { data: customers, error: fetchErr } = await admin
-      .from('customers')
-      .select('*')
-      .eq('email', offer.email);
+      .from("customers")
+      .select("*")
+      .eq("email", offer.email);
 
-    if (fetchErr) return err('fetchCustomers', fetchErr.message);
+    if (fetchErr) return err("fetchCustomers", fetchErr.message);
 
     let customerId: string | null = null;
     const existing: Customer | undefined = customers?.find((c) => c.email === offer.email);
 
     if (existing) {
       customerId = existing.id;
-      // tyst uppdatering
+      // tyst uppdatering av basfält
       await admin
-        .from('customers')
+        .from("customers")
         .update({
           name: offer.name ?? existing.name,
           phone: offer.phone ?? existing.phone,
@@ -57,10 +62,10 @@ export async function POST(req: Request) {
           city: offer.city ?? existing.city,
           country: offer.country ?? existing.country,
         })
-        .eq('id', existing.id);
+        .eq("id", existing.id);
     } else {
       const { data: created, error: insertErr } = await admin
-        .from('customers')
+        .from("customers")
         .insert([
           {
             name: offer.name,
@@ -76,53 +81,52 @@ export async function POST(req: Request) {
         .select()
         .single();
 
-      if (insertErr) return err('createCustomer', insertErr.message);
+      if (insertErr) return err("createCustomer", insertErr.message);
       customerId = created!.id;
     }
 
-    if (!customerId) return err('invariant', 'customerId saknas efter upsert');
+    if (!customerId) return err("invariant", "customerId saknas efter upsert");
 
-    // 2) Bygg ORDERBEKRÄFTELSE som riktig PDF (samma mall som Offert – endast rubriken skiljer)
+    // 2) Bygg ORDERBEKRÄFTELSE som PDF (rubrik skiljer från offert)
     const bytes = await buildDocument(
       {
         customerId,
-        title: 'Orderbekräftelse',
+        title: "Orderbekräftelse",
         amount: Number(offer.amount ?? 0),
-        currency: String(offer.currency ?? 'SEK'),
+        currency: String(offer.currency ?? "SEK"),
         needsPrint: Boolean(offer.needsPrint ?? false),
         data: {
-          customerName: offer.companyName ?? offer.name ?? '',
-          customerAddress: offer.address ?? '',
-          customerPhone: offer.phone ?? '',
-          customerEmail: offer.email ?? '',
+          customerName: offer.companyName ?? offer.name ?? "",
+          customerAddress: offer.address ?? "",
+          customerPhone: offer.phone ?? "",
+          customerEmail: offer.email ?? "",
           orderNumber: `ORD-${Date.now()}`,
-          orderDate: new Date().toLocaleDateString('sv-SE'),
-          source: 'order-from-offer',
+          orderDate: new Date().toLocaleDateString("sv-SE"),
+          source: "order-from-offer",
           ...offer,
         },
       },
-      'orderConfirmation'
+      "orderConfirmation"
     );
 
-    console.log('[create-order] pdf bytes length =', bytes?.length);
-    if (!bytes || bytes.length < 1000) return err('buildPdf', 'PDF blev för liten');
+    console.log("[create-order] pdf bytes length =", bytes?.length);
+    if (!bytes || bytes.length < 1000) return err("buildPdf", "PDF blev för liten");
 
-    // 3) Ladda upp som **PDF-Blob** till samma bucket som offerten
+    // 3) Ladda upp PDF till Storage i samma bucket
     const fileName = `${Date.now()}-order.pdf`;
     const filePath = `orders/${customerId}/${fileName}`;
-    const blob = new Blob([bytes], { type: 'application/pdf' });
+    const blob = new Blob([bytes], { type: "application/pdf" });
 
-    const { error: upErr } = await admin
-      .storage
+    const { error: upErr } = await admin.storage
       .from(BUCKET)
-      .upload(filePath, blob, { contentType: 'application/pdf', upsert: true });
+      .upload(filePath, blob, { contentType: "application/pdf", upsert: true });
 
-    if (upErr) return err('upload', upErr.message, upErr.statusCode ?? 500);
+    if (upErr) return err("upload", upErr.message, (upErr as any)?.statusCode ?? 500);
 
-    // 4) ⛔️ Ingen createSignedUrl här — returnera bara path & bucket
-    console.log('[createOrder] uploaded path =', filePath, 'bucket =', BUCKET);
+    // 4) Returnera path & bucket (ingen signed URL här)
+    console.log("[createOrder] uploaded path =", filePath, "bucket =", BUCKET);
     return NextResponse.json({ ok: true, path: filePath, bucket: BUCKET, customerId }, { status: 200 });
   } catch (e: any) {
-    return err('createOrder', String(e?.message || e));
+    return err("createOrder", String(e?.message || e));
   }
 }
