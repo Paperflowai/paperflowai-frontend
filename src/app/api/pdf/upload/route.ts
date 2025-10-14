@@ -17,7 +17,7 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
 
 const clean = (s: string) => s.replace(/[^\w.\-]+/g, "_");
 
-export async function POST(req: Request) {
+export async function POST(req: Request, context: any) {
   try {
     const form = await req.formData().catch(() => null);
     if (!form) {
