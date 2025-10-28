@@ -1,5 +1,0 @@
-[33m068cccaf[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m feat: support dataJson + auto-calc amount; update OpenAPI to 1.0.1
-[33m2b0ebec1[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m chore: add openapi-gpt.json for OffertGPT actions
-[33ma08aecf7[m feat(kundkort): visa offerter och öppna/skriv ut PDF
-[33m880dcc8c[m fix: serve openapi.json locally + add create endpoint to schema + ping test
-[33m969deb8c[m Create offer: DB + render PDF + upload to Supabase + save file_url
