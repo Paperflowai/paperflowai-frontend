@@ -69,7 +69,7 @@ export default function StartPage() {
           <Card
             title="💳 Betala fakturor"
             desc="Hantera inkommande betalningar."
-            href="/bills"
+            href="/faktura"
           />
           <Card
             title="📚 Bokföring"
