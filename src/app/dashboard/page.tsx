@@ -790,7 +790,7 @@ useEffect(() => {
               + Lägg till kund
             </button>
             <Link
-              href="/test-customer"
+              href="/kund/ny"
               className="w-full sm:w-auto bg-blue-600 text-white px-5 py-3 md:px-4 md:py-2 text-base md:text-sm rounded-lg hover:bg-blue-700 text-center"
             >
               Test CustomerOffersPanel
