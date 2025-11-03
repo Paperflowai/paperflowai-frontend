@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from "../../lib/supabaseClient";
-import { uploadPublicBlob } from "../../lib/supabaseStorage";
+import { uploadPublicBlob } from "@/lib/storage";
 import DashboardCounter from "@/components/DashboardCounter";
 import LogoutButton from "@/components/LogoutButton";
 
@@ -790,7 +790,7 @@ useEffect(() => {
               + Lägg till kund
             </button>
             <Link
-              href="/test-customer"
+              href="/kund/ny"
               className="w-full sm:w-auto bg-blue-600 text-white px-5 py-3 md:px-4 md:py-2 text-base md:text-sm rounded-lg hover:bg-blue-700 text-center"
             >
               Test CustomerOffersPanel

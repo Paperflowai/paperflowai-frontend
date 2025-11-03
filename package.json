@@ -8,7 +8,6 @@
     "start": "next start -p 3000",
     "lint": "next lint",
     "clean:next": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true});\"",
-    "clean:test": "node --env-file=.env.local scripts/cleanup-test-customers.mjs",
     "clean:test:apply": "node --env-file=.env.local scripts/cleanup-test-customers.mjs --apply",
     "list:customers": "node --env-file=.env.local scripts/list-customers.mjs",
     "upsert:kund1": "node --env-file=.env.local scripts/upsert-kund1.mjs"
