@@ -43,3 +43,10 @@ ocr_server/*.dll
 ocr_server/*.lib
 ocr_server/*.so
 ocr_server/*.dylib
+# Eget arkiv & editor
+_archive/
+.vscode/
+
+# Node-byggen i scripts
+python-scripts/**/node_modules/
+python-scripts/**/dist/
