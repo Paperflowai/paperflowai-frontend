@@ -61,6 +61,12 @@ export async function POST(req: Request) {
       "offer"
     );
 
+    // 🧪 Logga längden på PDF-data
+    console.log(
+      "create-from-gpt pdfBytes length:",
+      pdfBytes ? (pdfBytes as any).length : "no pdfBytes"
+    );
+
     // 3) Lagra PDF i Supabase Storage
     const docId = crypto.randomUUID();
     const bucket = "paperflow-files";
