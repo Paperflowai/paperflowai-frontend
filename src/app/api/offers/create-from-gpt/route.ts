@@ -61,11 +61,15 @@ export async function POST(req: Request) {
       "offer"
     );
 
-    // 🧪 Logga längden på PDF-data
     console.log(
       "create-from-gpt pdfBytes length:",
       pdfBytes ? (pdfBytes as any).length : "no pdfBytes"
     );
+
+    // Gör om PDF-datan till en Blob som Supabase/fetch gillar
+    const pdfBlob = new Blob([pdfBytes as any], {
+      type: "application/pdf",
+    });
 
     // 3) Lagra PDF i Supabase Storage
     const docId = crypto.randomUUID();
@@ -74,7 +78,7 @@ export async function POST(req: Request) {
 
     const { error: upErr } = await supabaseAdmin.storage
       .from(bucket)
-      .upload(storagePath, pdfBytes, {
+      .upload(storagePath, pdfBlob, {
         contentType: "application/pdf",
         upsert: true,
       });
