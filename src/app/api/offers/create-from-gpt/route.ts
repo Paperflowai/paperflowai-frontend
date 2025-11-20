@@ -1,36 +1,34 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import crypto from "crypto";
+import { buildDocument } from "@/lib/pdf/buildDocument";
 
 export const runtime = "nodejs";
 
 type GPTOfferBody = {
   customerId: string;
-  jsonData: any;  // JSON-delen med kund- och offertfält
-  textData: string;  // Text-delen med offertlayouten
+  jsonData: any;   // Strukturerad offert-data (kund, rader, summa osv.)
+  textData: string; // Den snygga textversionen av offerten
 };
 
 function bad(msg: string, code = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status: code });
 }
 
-import { buildDocument } from '@/lib/pdf/buildDocument';
-
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as GPTOfferBody;
     const { customerId, jsonData, textData } = body;
 
-    // 1) Minikrav
+    // 1) Minimikrav
     if (!customerId || !jsonData || !textData) {
-      return bad("Missing customerId, jsonData, or textData");
+      return bad("Missing customerId, jsonData or textData");
     }
 
-    // 2) Upsert kund i public.customers
-    try {
-      const kund = jsonData.kund || {};
-      const customerPayload = {
+    // 2) Upsert kund i customers
+    const kund = jsonData.kund || {};
+    await supabaseAdmin.from("customers").upsert(
+      {
         id: customerId,
         name: kund.namn || null,
         orgnr: kund.orgnr || null,
@@ -39,77 +37,83 @@ export async function POST(req: Request) {
         address: kund.adress || null,
         zip: kund.postnummer || null,
         city: kund.ort || null,
-        country: kund.land || "Sverige"
-      };
+        country: kund.land || "Sverige",
+      },
+      { onConflict: "id" }
+    );
 
-      const { error: custErr } = await supabaseAdmin
-        .from("customers")
-        .upsert(customerPayload, { onConflict: "id" });
-      
-      if (custErr) {
-        console.warn("customers upsert failed:", custErr.message);
-      }
-    } catch (e: any) {
-      console.warn("customers upsert exception:", e?.message || e);
+    // 3) Skapa PDF via din befintliga PDF-generator
+    const pdfBytes = await buildDocument(
+      {
+        customerId,
+        title: jsonData.titel || "Offert",
+        amount: Number(jsonData.summa) || 0,
+        currency: jsonData.valuta || "SEK",
+        needsPrint: false,
+        data: { textData },
+      },
+      "offer"
+    );
+
+    // 4) Ladda upp PDF till Supabase Storage
+    const docId = crypto.randomUUID();
+    const bucket = "paperflow-files";
+    const filename = `offert-${Date.now()}.pdf`;
+    const storagePath = `offers/${customerId}/${filename}`;
+
+    const { error: upErr } = await supabaseAdmin.storage
+      .from(bucket)
+      .upload(storagePath, pdfBytes, {
+        contentType: "application/pdf",
+        upsert: true,
+      });
+
+    if (upErr) {
+      return bad("Upload failed: " + upErr.message, 500);
     }
 
-    // 3) Skapa PDF från text
-    const pdfBytes = await buildDocument({ 
-      customerId, 
-      title: 'Offert från GPT', 
-      amount: 0, 
-      currency: 'SEK', 
-      needsPrint: false, 
-      data: { textData } 
-    }, 'offer');
+    // 5) Hämta publik URL
+    const { data: pub } = supabaseAdmin
+      .storage
+      .from(bucket)
+      .getPublicUrl(storagePath);
 
-    // 4) Storage-path
-    const offerId = crypto.randomUUID();
-    const storageBucket = "paperflow-files";
-    const storagePath = `customers/${customerId}/offers/${offerId}.pdf`;
+    if (!pub?.publicUrl) {
+      return bad("Could not generate public URL", 500);
+    }
 
-    // 5) Upload PDF
-    const { error: upErr } = await supabaseAdmin.storage
-      .from(storageBucket)
-      .upload(storagePath, pdfBytes, { contentType: "application/pdf", upsert: true });
-    
-    if (upErr) return bad(`Storage upload failed: ${upErr.message}`, 500);
+    const fileUrl = pub.publicUrl;
 
-    // 6) Public URL
-    const { data: pub } = supabaseAdmin.storage.from(storageBucket).getPublicUrl(storagePath);
-    const file_url = pub?.publicUrl;
-    if (!file_url) return bad("Could not generate public URL", 500);
+    // 6) Spara i public.documents (ENBART kolumner som finns!)
+    const { error: docErr } = await supabaseAdmin.from("documents").insert({
+      id: docId,
+      customer_id: customerId,
+      doc_type: "offer",      // passerar din CHECK-constraint
+      type: "offer",
+      filename,
+      storage_path: storagePath,
+      file_url: fileUrl,
+      bucket: bucket,
+      bucket_name: bucket,
+      total_amount: Number(jsonData.summa) || 0,
+      status: "created",
+      created_at: new Date().toISOString(),
+    });
 
-    // 7) Spara i DB
-    const { data: inserted, error: insErr } = await supabaseAdmin
-      .from("offers")
-      .insert({
-        id: offerId,
-        customer_id: customerId,
-        title: jsonData.titel || "GPT-genererad offert",
-        amount: jsonData.summa || 0,
-        currency: jsonData.valuta || "SEK",
-        file_url,
-        needs_print: false,
-        status: null,
-        data_json: JSON.stringify(jsonData)
-      })
-      .select()
-      .single();
-    
-    if (insErr) return bad(`DB insert failed: ${insErr.message}`, 500);
+    if (docErr) {
+      return bad("Insert failed: " + docErr.message, 500);
+    }
 
-    // 8) Svar
+    // 7) Svar tillbaka till GPT / frontend
     return NextResponse.json(
-      { 
-        ok: true, 
-        offer: inserted,
-        pdfUrl: file_url,
-        textPreview: textData.substring(0, 200) + "..." // Förhandsgranskning
+      {
+        ok: true,
+        id: docId,
+        pdfUrl: fileUrl,
       },
       { status: 200 }
     );
   } catch (e: any) {
-    return bad(e?.message ?? "Unknown error", 500);
+    return bad(e?.message || "Unknown error", 500);
   }
 }
