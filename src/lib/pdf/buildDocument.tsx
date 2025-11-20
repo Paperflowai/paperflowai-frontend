@@ -36,7 +36,7 @@ export async function buildDocument(
         beskrivning: data?.data?.description ?? '',
         offertId: data?.data?.offerNumber ?? '',
         kundId: data.customerId,
-        datum: data?.data?.orderDate ?? new Date().toISOString().slice(0,10),
+        datum: data?.data?.orderDate ?? new Date().toISOString().slice(0, 10),
         validTill: data?.data?.validity ?? undefined,
         kontaktperson: data?.data?.contactPerson ?? undefined,
         telefon: data?.data?.customerPhone ?? undefined,
@@ -47,9 +47,9 @@ export async function buildDocument(
 
   const buffer = await instance.toBuffer();
   console.log('[buildDocument] Buffer length:', buffer.length);
-  
-  // Gör om Node Buffer → Uint8Array utan kopiering
-  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+
+  // Skicka tillbaka Node Buffer direkt (Supabase gillar Buffer)
+  return buffer as unknown as Uint8Array;
 }
 
 // Default export för bakåtkompatibilitet
