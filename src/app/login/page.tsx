@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import OpenAccountingCta from "@/components/OpenAccountingCta";
 
@@ -12,7 +12,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   // Skapa konto
   const handleSignup = async (e: React.FormEvent) => {
@@ -37,8 +36,8 @@ export default function LoginPage() {
     if (error) {
       setError(error.message);
     } else {
-      const next = searchParams.get("next");
-      router.push(next ?? "/dashboard"); // Gå till ?next=... om satt, annars dashboard
+      // Enkel redirect: alltid till dashboard efter inloggning
+      router.push("/dashboard");
     }
   };
 
