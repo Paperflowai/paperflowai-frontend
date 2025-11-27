@@ -36,7 +36,7 @@ export default function LoginPage() {
     if (error) {
       setError(error.message);
     } else {
-      // INGEN useSearchParams här – alltid till dashboard
+      // Enkel redirect – ingen useSearchParams
       router.push("/dashboard");
     }
   };
@@ -82,16 +82,4 @@ export default function LoginPage() {
           onClick={handleLogin}
           className="w-full bg-indigo-500 text-white py-2 rounded hover:bg-indigo-600"
         >
-          Logga in
-        </button>
-
-        <button
-          onClick={handleSignup}
-          className="w-full bg-green-500 text-white py-2 rounded hover:bg-green-600"
-        >
-          Skapa konto
-        </button>
-      </form>
-    </div>
-  );
-}
+          L
