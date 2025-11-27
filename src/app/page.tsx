@@ -1,6 +1,6 @@
 // src/app/page.tsx
 "use client";
-
+import OpenAccountingCta from "@/components/OpenAccountingCta";
 import Link from "next/link";
 import Image from "next/image";
 import TimeSavingsBanner from "@/components/TimeSavingsBanner";
@@ -10,23 +10,21 @@ import { supabase } from "@/lib/supabaseClient";
 export default function HomePage() {
   // Säkerställ att vi alltid visar huvudsidan först
   useEffect(() => {
-    // Rensa eventuella cached redirects
-    if (typeof window !== 'undefined') {
-      console.log('🏠 HomePage loaded on:', window.location.pathname);
-      
-      // Kontrollera om vi är på fel sida
-      if (window.location.pathname !== '/') {
-        console.log('🔄 Redirecting to main page from:', window.location.pathname);
-        window.location.replace('/');
+    if (typeof window !== "undefined") {
+      console.log("🏠 HomePage loaded on:", window.location.pathname);
+
+      if (window.location.pathname !== "/") {
+        console.log("🔄 Redirecting to main page from:", window.location.pathname);
+        window.location.replace("/");
         return;
       }
-      
-      // Debug: Kontrollera Supabase session
+
       supabase.auth.getSession().then(({ data }) => {
-        console.log('🔐 Supabase session status:', data.session ? 'Logged in' : 'Not logged in');
+        console.log("🔐 Supabase session status:", data.session ? "Logged in" : "Not logged in");
       });
     }
   }, []);
+
   return (
     <main className="relative min-h-dvh w-full overflow-x-hidden">
       {/* Videobakgrund – alltid längst bak */}
@@ -79,11 +77,15 @@ export default function HomePage() {
               Bokföring
             </Link>
             <Link
-              href="/tidsrapport/rapport"
+              href="/tidsrapport"
               className="text-white hover:text-black border border-white hover:bg-white px-3 py-1 rounded text-xs sm:text-sm transition"
             >
               Tidsrapport
             </Link>
+
+            {/* Visas bara för inloggad */}
+            <OpenAccountingCta />
+
             <Link
               href="/login"
               className="text-white hover:text-black border border-white hover:bg-white px-4 py-1 rounded text-xs sm:text-sm transition"
@@ -99,8 +101,7 @@ export default function HomePage() {
         {/* Hero */}
         <div className="flex flex-col items-center justify-start mt-4 px-4 text-center">
           <h1 className="text-white text-lg sm:text-2xl md:text-3xl font-semibold mb-2 leading-snug">
-            Automatisera hela flödet – från offert till klar bokföring på
-            minuter
+            Automatisera hela flödet – från offert till klar bokföring på minuter
           </h1>
           <p className="text-white text-sm sm:text-base md:text-lg max-w-prose">
             PaperflowAI gör jobbet – du sparar TID och PENGAR.

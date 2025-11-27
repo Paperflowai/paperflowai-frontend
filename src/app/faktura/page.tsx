@@ -1,6 +1,7 @@
 // src/app/faktura/page.tsx
 import Link from "next/link";
 import Image from "next/image";
+import OpenAccountingCta from "@/components/OpenAccountingCta";
 
 export default function FakturaPage() {
   return (
@@ -21,12 +22,9 @@ export default function FakturaPage() {
             🏠 Till Start
           </Link>
         </div>
-        <Link
-          href="/dashboard/bookkeepingboard"
-          className="bg-blue-600/30 hover:bg-blue-600/50 px-4 py-2 rounded text-sm"
-        >
-          Till bokföringen →
-        </Link>
+
+        {/* Visa bara för inloggad */}
+        <OpenAccountingCta />
       </div>
       
       <div className="max-w-screen-lg mx-auto px-4 py-10 space-y-8">

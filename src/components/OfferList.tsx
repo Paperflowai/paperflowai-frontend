@@ -130,8 +130,8 @@ export default function OfferList({ customerId, customerEmail, onEmailUpdate }: 
   if (loading) return <div className="text-sm text-gray-500">Laddar offerter…</div>;
   if (error)   return <div className="text-sm text-red-600">Fel: {error}</div>;
   if (!offers || offers.length === 0) {
-    return <div className="text-sm text-gray-500">Inga offerter ännu.</div>;
-  }
+  return null;   // visa ingenting när det saknas offerter
+}
 
   return (
     <div className="space-y-3">

@@ -1,12 +1,13 @@
 // src/app/bokforing/page.tsx
 import Link from "next/link";
 import Image from "next/image";
+import OpenAccountingCta from "@/components/OpenAccountingCta";
 
 export default function BokforingPage() {
   return (
     <main className="min-h-dvh bg-gradient-to-br from-indigo-800 via-purple-700 to-fuchsia-700 text-white">
-      {/* Tillbaka-knappar */}
-      <div className="p-4 flex justify-between">
+      {/* Topprad: Tillbaka + Start + (ev.) Öppna bokföring */}
+      <div className="p-4 flex justify-between items-center">
         <div className="flex gap-2">
           <Link
             href="/"
@@ -21,14 +22,11 @@ export default function BokforingPage() {
             🏠 Till Start
           </Link>
         </div>
-        <Link
-          href="/dashboard/bookkeepingboard"
-          className="bg-blue-600/30 hover:bg-blue-600/50 px-4 py-2 rounded text-sm"
-        >
-          Öppna bokföring →
-        </Link>
+
+        {/* Visas bara om användaren är inloggad */}
+        <OpenAccountingCta />
       </div>
-      
+
       <div className="max-w-screen-lg mx-auto px-4 py-10 space-y-8">
         {/* Logga överst */}
         <div className="flex justify-center">
@@ -43,8 +41,12 @@ export default function BokforingPage() {
         </div>
 
         <header className="text-center space-y-2">
-          <h1 className="text-3xl md:text-4xl font-semibold">Bokföring – klart för revisorn</h1>
-          <p className="text-white/90">Alla siffror samlas. Exportera CSV när du vill – noll handpåläggning.</p>
+          <h1 className="text-3xl md:text-4xl font-semibold">
+            Bokföring – klart för revisorn
+          </h1>
+          <p className="text-white/90">
+            Alla siffror samlas. Exportera CSV när du vill – noll handpåläggning.
+          </p>
         </header>
 
         <section className="grid md:grid-cols-3 gap-4">
@@ -77,7 +79,6 @@ export default function BokforingPage() {
             <li>Exportera CSV när du vill och skicka till revisorn.</li>
           </ol>
         </section>
-
       </div>
     </main>
   );

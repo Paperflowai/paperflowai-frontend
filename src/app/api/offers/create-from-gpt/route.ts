@@ -6,9 +6,9 @@ import { buildDocument } from "@/lib/pdf/buildDocument";
 export const runtime = "nodejs";
 
 type GPTOfferBody = {
-  customerId: string;
-  jsonData?: any;     // valfritt – extra strukturerad data från GPT
-  textData: string;   // själva offerttexten
+  customerId?: string;      // kan saknas vid ny kund
+  jsonData?: any;
+  textData: string;
 };
 
 function bad(msg: string, code = 400) {
@@ -18,24 +18,28 @@ function bad(msg: string, code = 400) {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as GPTOfferBody;
-    const { customerId, jsonData, textData } = body;
+    let { customerId, jsonData, textData } = body;
 
-    // Enda hårda kraven: kund-id + texten
-    if (!customerId || !textData) {
-      return bad("Missing customerId or textData");
+    if (!textData) {
+      return bad("Missing textData");
     }
 
-    // Gör jsonData säkert valfritt
     const safeJson = jsonData || {};
     const kund = safeJson.kund || {};
 
-    // 1) Upsert kund i public.customers (autofyll kundkortet så gott det går)
+    // 1) Sätt kund-ID
+    if (!customerId) {
+      // Ny kund → skapa id
+      customerId = crypto.randomUUID();
+    }
+
+    // 2) Upsert i public.customers (det är den dashboarden läser från)
     await supabaseAdmin.from("customers").upsert(
       {
         id: customerId,
-        name: kund.namn || null,
+        name: kund.namn || safeJson.kundnamn || "Ny kund",
         orgnr: kund.orgnr || null,
-        email: kund.epost || null,
+        email: kund.epost || kund.email || null,
         phone: kund.telefon || null,
         address: kund.adress || null,
         zip: kund.postnummer || null,
@@ -45,7 +49,20 @@ export async function POST(req: Request) {
       { onConflict: "id" }
     );
 
-    // 2) Generera PDF från texten
+    // 3) Spegla till public.customer_cards (för framtida logik)
+    await supabaseAdmin.from("customer_cards").upsert(
+      {
+        customer_id: customerId,
+        name: kund.namn || safeJson.kundnamn || "Ny kund",
+        orgnr: kund.orgnr || null,
+        email: kund.epost || kund.email || null,
+        phone: kund.telefon || null,
+        address: kund.adress || null,
+      },
+      { onConflict: "customer_id" }
+    );
+
+    // 4) Generera PDF
     const pdfBytes = await buildDocument(
       {
         customerId,
@@ -53,14 +70,12 @@ export async function POST(req: Request) {
         amount: safeJson.summa || 0,
         currency: safeJson.valuta || "SEK",
         needsPrint: false,
-        data: {
-          textData,      // <- används av vår enkla PDF-layout
-        },
+        data: { textData },
       },
       "offer"
     );
 
-    // 3) Lagra PDF i Supabase Storage
+    // 5) Lagra PDF i Storage
     const docId = crypto.randomUUID();
     const bucket = "paperflow-files";
     const storagePath = `documents/${customerId}/offers/${docId}.pdf`;
@@ -84,57 +99,57 @@ export async function POST(req: Request) {
       return bad("Could not generate public URL", 500);
     }
 
-    // 4) Spara rad i public.documents (så den syns under “Alla dokument”)
-    const { error: docErr } = await supabaseAdmin.from("documents").insert({
-      id: docId,
-      customer_id: customerId,
-      doc_type: "offer",
-      type: "offer",
-      filename: safeJson.titel || "Offert",
-      storage_path: storagePath,
-      file_url: pub.publicUrl,
-      bucket,
-      bucket_name: bucket,
-      status: "created",
-      created_at: new Date().toISOString(),
-    });
+    // 6) Spara rad i documents
+    const { data: docRow, error: docErr } = await supabaseAdmin
+      .from("documents")
+      .insert({
+        id: docId,
+        customer_id: customerId,
+        doc_type: "offer",
+        type: "offer",
+        filename: safeJson.titel || "Offert",
+        storage_path: storagePath,
+        file_url: pub.publicUrl,
+        bucket,
+        bucket_name: bucket,
+        status: "created",
+        created_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
 
     if (docErr) {
-      return bad("Insert into documents failed: " + docErr.message, 500);
+      return bad("Insert failed: " + docErr.message, 500);
     }
 
-    // 5) Skapa offert-rad i public.offers (samma typ som /api/offers/route.ts)
-    const offerPayload = {
-      ...safeJson,
-      customerId,
-      textData,
-      pdfUrl: pub.publicUrl,
-      documentId: docId,
-    };
-
-    const { error: offerErr } = await supabaseAdmin
+    // 7) Spara själva offern i offers-tabellen (enkel variant)
+    const { data: offerRow, error: offerErr } = await supabaseAdmin
       .from("offers")
       .insert({
-        status: safeJson.status ?? "sent", // "draft" / "sent" / "accepted" / ...
-        data: offerPayload,                // sparar hela objektet i jsonb
-      });
+        customer_id: customerId,
+        status: "created",
+        data: safeJson,
+        created_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
 
     if (offerErr) {
-      console.error("❌ create-from-gpt: offers insert failed:", offerErr.message);
-      // vi låter ändå PDF:en vara skapad – därför bara logg, inte 500-fel
+      return bad("Offer insert failed: " + offerErr.message, 500);
     }
 
-    // 6) Svar tillbaka till GPT / klienten
     return NextResponse.json(
       {
         ok: true,
-        id: docId,
+        customerId,
+        documentId: docRow.id,
+        offerId: offerRow.id,
         pdfUrl: pub.publicUrl,
       },
       { status: 200 }
     );
   } catch (e: any) {
-    console.error("❌ create-from-gpt error:", e);
+    console.error("create-from-gpt error:", e);
     return bad(e?.message || "Unknown error", 500);
   }
 }

@@ -1,6 +1,7 @@
 // src/app/offert/page.tsx
 import Link from "next/link";
 import Image from "next/image";
+import OpenAccountingCta from "@/components/OpenAccountingCta";
 
 export default function OffertPage() {
   return (
@@ -21,16 +22,12 @@ export default function OffertPage() {
             🏠 Till Start
           </Link>
         </div>
-        <Link
-          href="/dashboard/bookkeepingboard"
-          className="bg-blue-600/30 hover:bg-blue-600/50 px-4 py-2 rounded text-sm"
-        >
-          Till bokföringen →
-        </Link>
-      </div>
-      
-      <div className="max-w-screen-lg mx-auto px-4 py-10 space-y-8">
 
+        {/* Visa bara för inloggad */}
+        <OpenAccountingCta />
+      </div>
+
+      <div className="max-w-screen-lg mx-auto px-4 py-10 space-y-8">
         {/* Logga överst – samma som på bokföringssidan */}
         <div className="flex justify-center">
           <Image
@@ -43,8 +40,10 @@ export default function OffertPage() {
           />
         </div>
 
-                <header className="text-center space-y-2">
-          <h1 className="text-3xl md:text-4xl font-semibold">Skapa offerter på under 3 minuter</h1>
+        <header className="text-center space-y-2">
+          <h1 className="text-3xl md:text-4xl font-semibold">
+            Skapa offerter på under 3 minuter
+          </h1>
           <p className="text-white/90">
             Snabbt, snyggt och utan krångel – perfekt för hantverkare och småföretag.
           </p>

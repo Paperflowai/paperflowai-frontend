@@ -3,25 +3,23 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import OpenAccountingCta from "@/components/OpenAccountingCta";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Skapa konto
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
-
+    const { error } = await supabase.auth.signUp({ email, password });
     if (error) {
       setError(error.message);
     } else {
@@ -34,15 +32,13 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
       setError(error.message);
     } else {
-      router.push("/dashboard"); // Skicka användaren till dashboarden
+      const next = searchParams.get("next");
+      router.push(next ?? "/dashboard"); // Gå till ?next=... om satt, annars dashboard
     }
   };
 
@@ -57,17 +53,12 @@ export default function LoginPage() {
           ← Tillbaka
         </Link>
       </div>
-      
-      {/* Till bokföringen-knapp */}
+
+      {/* Till bokföringen – visas bara om inloggad */}
       <div className="absolute top-4 right-4">
-        <Link
-          href="/dashboard/bookkeepingboard"
-          className="bg-blue-600/30 hover:bg-blue-600/50 px-4 py-2 rounded text-sm text-white"
-        >
-          Till bokföringen →
-        </Link>
+        <OpenAccountingCta />
       </div>
-      
+
       <form className="bg-white p-6 rounded shadow-md space-y-4 w-80">
         <h1 className="text-xl font-bold text-center">Logga in / Skapa konto</h1>
 

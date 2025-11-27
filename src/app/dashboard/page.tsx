@@ -16,7 +16,7 @@ import LogoutButton from "@/components/LogoutButton";
 const AUTH_DISABLED = process.env.NEXT_PUBLIC_DISABLE_AUTH === '1' || process.env.NODE_ENV === 'development';
 
 type Kund = {
-  id: number;
+  id: string;
   companyName: string;
   orgNr: string;
   contactPerson: string;
@@ -50,7 +50,7 @@ type BookkeepEntry = {
   status: Status;
 };
 
-const DEMO_CUSTOMERS = new Set<string>();
+const DEMO_CUSTOMERS = new Set<string>(['Test AB', 'Kund 1', 'Elfixarna AB']);
 const BK_KEY = 'bookkeeping_entries';
 
 // =========================
@@ -544,46 +544,94 @@ useEffect(() => {
     });
   }, [displayedEntries]);
 
-  const laddaKunder = () => {
-    const keys = Object.keys(localStorage).filter((k) => /^kund_\d+$/.test(k));
-    const list: Kund[] = [];
-    for (const key of keys) {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      try {
-        const parsed: Partial<Kund> = JSON.parse(raw) || {};
-        const id = Number.isFinite(parsed.id as number) ? (parsed.id as number) : parseInt(key.split('_')[1], 10);
-        if (!id || Number.isNaN(id)) continue;
+const laddaKunder = async () => {
+  // 1) Gamla lokala kunder från localStorage (Test ab m.fl.)
+  const keys = Object.keys(localStorage).filter((k) => /^kund_\d+$/.test(k));
+  const list: Kund[] = [];
 
-        const companyName = (parsed.companyName || '').trim();
-        const hasOffert = !!localStorage.getItem(`kund_offert_${id}`) || !!localStorage.getItem(`sent_offer_${id}`);
-        const hasOrder = !!localStorage.getItem(`kund_order_${id}`) || !!localStorage.getItem(`sent_order_${id}`);
-        const hasInvoice = !!localStorage.getItem(`kund_invoice_${id}`) || !!localStorage.getItem(`sent_invoice_${id}`);
-        const isEmpty = !companyName && !hasOffert && !hasOrder && !hasInvoice;
+  for (const key of keys) {
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
+    try {
+      const parsed: any = JSON.parse(raw) || {};
+      const rawId = key.split('_')[1]; // t.ex. "123" i "kund_123"
+      const id = parsed.id ? String(parsed.id) : String(rawId);
 
-        if (!isEmpty || DEMO_CUSTOMERS.has(companyName)) {
-          list.push({
-            id,
-            companyName: companyName || 'Namnlös kund',
-            orgNr: parsed.orgNr || '',
-            contactPerson: parsed.contactPerson || '',
-            role: parsed.role || '',
-            phone: parsed.phone || '',
-            email: parsed.email || '',
-            address: parsed.address || '',
-            zip: parsed.zip || '',
-            city: parsed.city || '',
-            country: parsed.country || 'Sverige',
-            contactDate: parsed.contactDate || '',
-            notes: parsed.notes || '',
-            customerNumber: parsed.customerNumber || '',
-          } as Kund);
-        }
-      } catch {}
+      if (!id) continue;
+
+      const companyName = (parsed.companyName || '').trim();
+      const hasOffert = !!localStorage.getItem(`kund_offert_${id}`) || !!localStorage.getItem(`sent_offer_${id}`);
+      const hasOrder = !!localStorage.getItem(`kund_order_${id}`) || !!localStorage.getItem(`sent_order_${id}`);
+      const hasInvoice = !!localStorage.getItem(`kund_invoice_${id}`) || !!localStorage.getItem(`sent_invoice_${id}`);
+      const isEmpty = !companyName && !hasOffert && !hasOrder && !hasInvoice;
+
+      if (!isEmpty && !DEMO_CUSTOMERS.has(companyName)) {
+        list.push({
+          id,
+          companyName: companyName || 'Namnlös kund',
+          orgNr: parsed.orgNr || '',
+          contactPerson: parsed.contactPerson || '',
+          role: parsed.role || '',
+          phone: parsed.phone || '',
+          email: parsed.email || '',
+          address: parsed.address || '',
+          zip: parsed.zip || '',
+          city: parsed.city || '',
+          country: parsed.country || 'Sverige',
+          contactDate: parsed.contactDate || '',
+          notes: parsed.notes || '',
+          customerNumber: parsed.customerNumber || '',
+        });
+      }
+    } catch {
+      // Ignorera trasig localStorage-rad
     }
-    const unique = Array.from(new Map(list.map((c) => [c.id, c])).values());
-    setCustomers(unique);
-  };
+  }
+
+  const localUnique = Array.from(new Map(list.map((c) => [c.id, c])).values());
+
+  // 2) Nya kunder från Supabase (tabellen "customers")
+  try {
+    const { data, error } = await supabase
+      .from('customers')
+      .select('id, name, orgnr, email, phone, address, zip, city, country');
+
+    if (error) {
+      console.error('Kunde inte hämta customers från Supabase:', error.message);
+      setCustomers(localUnique);
+      return;
+    }
+
+    const dbCustomers: Kund[] = (data || []).map((row: any) => ({
+      id: String(row.id),
+      companyName: (row.name || '').trim() || 'Namnlös kund',
+      orgNr: row.orgnr || '',
+      contactPerson: '',
+      role: '',
+      phone: row.phone || '',
+      email: row.email || '',
+      address: row.address || '',
+      zip: row.zip || '',
+      city: row.city || '',
+      country: row.country || 'Sverige',
+      contactDate: '',
+      notes: '',
+      customerNumber: '',
+    }));
+
+   const all = [...localUnique, ...dbCustomers];
+
+// NYTT: filtrera bort demo-kunder även från Supabase-listan
+const allFiltered = all.filter(c => !DEMO_CUSTOMERS.has(c.companyName));
+
+const uniqueAll = Array.from(new Map(allFiltered.map((c) => [c.id, c])).values());
+setCustomers(uniqueAll);
+
+  } catch (e) {
+    console.error('Fel vid laddaKunder:', e);
+    setCustomers(localUnique);
+  }
+};
 
   function loadEntries() {
     try {
@@ -727,7 +775,7 @@ useEffect(() => {
   }
 
   const skapaNyKund = () => router.push(`/kund/${Date.now()}`);
-  const taBortKund = (id: number) => {
+  const taBortKund = (id: string) => {
     if (!confirm('Är du säker på att du vill ta bort kunden?')) return;
     localStorage.removeItem(`kund_${id}`);
     localStorage.removeItem(`kund_files_${id}`);

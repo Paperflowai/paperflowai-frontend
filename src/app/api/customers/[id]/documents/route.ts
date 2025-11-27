@@ -1,65 +1,41 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabaseServer";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const dynamic = "force-dynamic"; // undvik cache vid dev
 
-// Tillåt båda varianterna av env-namn
-const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL!;
-const SERVICE_ROLE =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE!;
+type Ctx = { params: Promise<{ id: string }> };
 
-const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
-  auth: { persistSession: false },
-});
-
-// Viktigt: 2:a argumentet typas som "any" för Next 15
-export async function GET(req: Request, { params }: any) {
+export async function GET(req: Request, ctx: Ctx) {
   try {
-    const customerId = decodeURIComponent(params?.id ?? "");
+    // ⬇️ viktig ändring: vänta in params
+    const { id } = await ctx.params;
+    const customerId = decodeURIComponent(id || "");
+
     if (!customerId) {
       return NextResponse.json(
-        { error: "Customer ID required" },
+        { ok: false, error: "customerId missing" },
         { status: 400 }
       );
     }
 
-    // Hämta alla dokumenttyper för kunden
-    const { data: offers, error: offersError } = await admin
-      .from("offers")
+    const { data, error } = await supabaseAdmin
+      .from("documents")
       .select("*")
       .eq("customer_id", customerId)
       .order("created_at", { ascending: false });
 
-    const { data: orders, error: ordersError } = await admin
-      .from("orders")
-      .select("*")
-      .eq("customer_id", customerId)
-      .order("created_at", { ascending: false });
+    if (error) throw error;
 
-    const { data: invoices, error: invoicesError } = await admin
-      .from("invoices")
-      .select("*")
-      .eq("customer_id", customerId)
-      .order("created_at", { ascending: false });
+    // hantera både "type" och "doc_type" om ditt schema varierar
+    const typeOf = (d: any) => d.type || d.doc_type || "";
+    const offers  = (data || []).filter(d => typeOf(d) === "offer"  || typeOf(d) === "offert");
+    const orders  = (data || []).filter(d => typeOf(d) === "order");
+    const invoices= (data || []).filter(d => typeOf(d) === "invoice");
 
-    if (offersError || ordersError || invoicesError) {
-      return NextResponse.json(
-        { error: "Failed to fetch documents" },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      offers: offers ?? [],
-      orders: orders ?? [],
-      invoices: invoices ?? [],
-    });
-  } catch (error) {
-    console.error("API error:", error);
+    return NextResponse.json({ ok: true, offers, orders, invoices });
+  } catch (e: any) {
     return NextResponse.json(
-      { error: "Internal server error" },
+      { ok: false, error: e?.message ?? "Unknown error" },
       { status: 500 }
     );
   }

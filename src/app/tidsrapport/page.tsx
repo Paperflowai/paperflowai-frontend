@@ -2,6 +2,7 @@
 "use client";
 
 import Link from "next/link";
+import OpenAccountingCta from "@/components/OpenAccountingCta";
 
 export default function TidsrapportPage() {
   return (
@@ -22,12 +23,9 @@ export default function TidsrapportPage() {
             🏠 Till Start
           </Link>
         </div>
-        <Link
-          href="/dashboard/bookkeepingboard"
-          className="bg-blue-600/30 hover:bg-blue-600/50 px-4 py-2 rounded text-sm"
-        >
-          Till bokföringen →
-        </Link>
+
+        {/* Visas bara när användaren är inloggad */}
+        <OpenAccountingCta />
       </div>
 
       {/* Rubrik */}
