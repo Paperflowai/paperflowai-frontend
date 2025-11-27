@@ -1,19 +1,17 @@
 // src/app/login/page.tsx
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import OpenAccountingCta from "@/components/OpenAccountingCta";
 
-function LoginForm() {
+export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
-
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   // Skapa konto
   const handleSignup = async (e: React.FormEvent) => {
@@ -33,16 +31,13 @@ function LoginForm() {
     e.preventDefault();
     setError(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
       setError(error.message);
     } else {
-      const next = searchParams.get("next");
-      router.push(next ?? "/dashboard"); // Gå till ?next=... om satt, annars dashboard
+      // INGEN useSearchParams här – alltid till dashboard
+      router.push("/dashboard");
     }
   };
 
@@ -98,13 +93,5 @@ function LoginForm() {
         </button>
       </form>
     </div>
-  );
-}
-
-export default function LoginPage() {
-  return (
-    <Suspense fallback={<div className="p-6 text-gray-500">Laddar inloggning…</div>}>
-      <LoginForm />
-    </Suspense>
   );
 }
