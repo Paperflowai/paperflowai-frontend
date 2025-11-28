@@ -56,7 +56,7 @@ export async function GET(req: Request) {
         const { data, error } = await supabaseAdmin
           .from("customers")
           .select(
-            "id, name, orgnr, email, phone, address, zip, city, country, created_at, updated_at"
+            "id, name, orgnr, email, phone, address, zip, city, country, customer_number, created_at, updated_at"
           )
           .eq("id", id)
           .maybeSingle();
@@ -78,7 +78,7 @@ export async function GET(req: Request) {
       const { data, error } = await supabaseAdmin
         .from("customers")
         .select(
-          "id, name, orgnr, email, phone, address, zip, city, country, created_at, updated_at"
+          "id, name, orgnr, email, phone, address, zip, city, country, customer_number, created_at, updated_at"
         )
         .order("created_at", { ascending: false });
 
@@ -134,6 +134,7 @@ export async function POST(req: Request) {
           zip: payload.zip ?? null,
           city: payload.city ?? null,
           country: payload.country ?? "Sverige",
+          customer_number: payload.customerNumber ?? null,
           created_at: now,
           updated_at: now,
         })

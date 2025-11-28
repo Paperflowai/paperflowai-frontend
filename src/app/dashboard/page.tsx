@@ -7,6 +7,10 @@ import { supabase, supabaseConfigured } from "../../lib/supabaseClient";
 import { uploadPublicBlob } from "@/lib/storage";
 import DashboardCounter from "@/components/DashboardCounter";
 import LogoutButton from "@/components/LogoutButton";
+import {
+  assignCustomerNumbers,
+  collectCustomerNumbersFromLocalStorage,
+} from "@/lib/customerNumbers";
 
 
 // =========================
@@ -31,6 +35,9 @@ type Kund = {
   notes: string;
   customerNumber: string;
 };
+
+type CustomerSource = "supabase" | "hook" | "local-card" | "offer";
+type SourceKund = Kund & { source?: CustomerSource };
 
 type EntryType = 'invoice' | 'expense';
 type Status = 'Bokförd' | 'Att bokföra';
@@ -426,7 +433,7 @@ useEffect(() => {
     }
   }, []);
 
-  const [customers, setCustomers] = useState<Kund[]>([]);
+  const [customers, setCustomers] = useState<SourceKund[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
 
   const [entries, setEntries] = useState<BookkeepEntry[]>([]);
@@ -557,9 +564,15 @@ const LOCAL_CARD_SKIP_PREFIXES = [
   "kund_bookkeeping_",
 ];
 
-function normalizeCustomerId(customer: Kund, prefix: string, index: number): Kund {
+function normalizeCustomerId(
+  customer: Kund,
+  prefix: string,
+  index: number,
+  source?: CustomerSource
+): SourceKund {
   return {
     ...customer,
+    source,
     id: customer.id || customer.customerNumber || customer.companyName || `${prefix}-${index}`,
   };
 }
@@ -681,6 +694,66 @@ function mergeIntoLocalCustomerStore(newCustomers: Kund[]) {
   }
 }
 
+function persistLocalCardNumber(customerId: string, customerNumber: string) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const key = `${LOCAL_CARD_PREFIX}${customerId}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed.customerNumber === customerNumber) return;
+    parsed.customerNumber = customerNumber;
+    localStorage.setItem(key, JSON.stringify(parsed));
+  } catch (err) {
+    console.warn("Kunde inte uppdatera kundkort med kundnummer", err);
+  }
+}
+
+function persistOfferCustomerNumber(customerId: string, customerNumber: string) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const raw = localStorage.getItem(LOCAL_CUSTOMER_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+
+    const idx = parsed.findIndex((c: any) => String(c?.id) === String(customerId));
+    if (idx === -1) return;
+
+    if (parsed[idx].customerNumber === customerNumber) return;
+    parsed[idx].customerNumber = customerNumber;
+    localStorage.setItem(LOCAL_CUSTOMER_STORAGE_KEY, JSON.stringify(parsed));
+  } catch (err) {
+    console.warn("Kunde inte uppdatera offertkund med kundnummer", err);
+  }
+}
+
+async function persistRemoteCustomerNumber(customer: SourceKund) {
+  if (!customer?.customerNumber) return;
+  try {
+    await fetch("/api/customer-cards/hook", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: customer.id,
+        name: customer.companyName || "Namnlös kund",
+        orgnr: customer.orgNr || null,
+        email: customer.email || null,
+        phone: customer.phone || null,
+        address: customer.address || null,
+        zip: customer.zip || null,
+        city: customer.city || null,
+        country: customer.country || "Sverige",
+        notes: customer.notes || null,
+        contactPerson: customer.contactPerson || null,
+        customerNumber: customer.customerNumber,
+      }),
+    });
+  } catch (err) {
+    console.warn("Kunde inte spara kundnummer mot Supabase/hook", err);
+  }
+}
+
 function removeFromLocalCustomerStore(id: string) {
   if (typeof localStorage === "undefined") return;
   try {
@@ -724,7 +797,7 @@ const laddaKunder = async () => {
           country: row.country || "Sverige",
           contactDate: "",
           notes: "",
-          customerNumber: "",
+          customerNumber: row.customer_number || "",
         }));
       }
     } catch (e) {
@@ -759,17 +832,19 @@ const laddaKunder = async () => {
 
   const filteredSupabase = dbCustomers
     .filter((c) => !DEMO_CUSTOMERS.has(c.companyName))
-    .map((c, idx) => normalizeCustomerId(c, "db", idx));
+    .map((c, idx) => normalizeCustomerId(c, "db", idx, "supabase"));
 
   const normalizedHookCustomers = hookCustomers.map((c, idx) =>
-    normalizeCustomerId(c, "hook", idx)
+    normalizeCustomerId(c, "hook", idx, "hook")
   );
 
   mergeIntoLocalCustomerStore([...filteredSupabase, ...normalizedHookCustomers]);
 
-  const normalizedLocalCards = localCards.map((c, idx) => normalizeCustomerId(c, "local", idx));
+  const normalizedLocalCards = localCards.map((c, idx) =>
+    normalizeCustomerId(c, "local", idx, "local-card")
+  );
   const normalizedOfferCustomers = offerCustomers.map((c, idx) =>
-    normalizeCustomerId(c, "offer", idx)
+    normalizeCustomerId(c, "offer", idx, "offer")
   );
 
   const allCustomers = [
@@ -779,7 +854,22 @@ const laddaKunder = async () => {
     ...normalizedOfferCustomers,
   ];
 
-  const uniqueAll = Array.from(new Map(allCustomers.map((c) => [c.id, c])).values());
+  const takenNumbers = collectCustomerNumbersFromLocalStorage();
+  const numbered = assignCustomerNumbers(allCustomers, {
+    taken: takenNumbers,
+    onAssign: (kund) => {
+      if (kund.source === "local-card") {
+        persistLocalCardNumber(kund.id, kund.customerNumber);
+      } else if (kund.source === "offer") {
+        persistOfferCustomerNumber(kund.id, kund.customerNumber);
+      } else if (kund.source === "supabase" || kund.source === "hook") {
+        persistRemoteCustomerNumber(kund);
+      }
+    },
+  });
+
+  const uniqueAll = Array.from(new Map(numbered.map((c) => [c.id, c])).values());
+  mergeIntoLocalCustomerStore(uniqueAll);
   setCustomers(uniqueAll);
 };
 

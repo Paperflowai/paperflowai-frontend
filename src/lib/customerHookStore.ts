@@ -1,5 +1,9 @@
 import fs from "fs";
 import path from "path";
+import {
+  generateUniqueCustomerNumber,
+  normalizeCustomerNumber,
+} from "./customerNumbers";
 
 export type ExternalCustomerPayload = {
   id?: string;
@@ -90,10 +94,24 @@ export function upsertExternalCustomer(
   const id = normalizeId(payload);
   const now = new Date().toISOString();
 
+  const takenNumbers = new Set<string>(
+    records
+      .map((c) => normalizeCustomerNumber(c.customerNumber))
+      .filter(Boolean) as string[]
+  );
+
+  const desiredNumber = normalizeCustomerNumber(payload.customerNumber);
+  const resolvedCustomerNumber = desiredNumber
+    ? takenNumbers.has(desiredNumber)
+      ? generateUniqueCustomerNumber(takenNumbers)
+      : desiredNumber
+    : generateUniqueCustomerNumber(takenNumbers);
+
   const idx = records.findIndex((c) => c.id === id);
   const base: ExternalCustomerRecord = {
     ...payload,
     id,
+    customerNumber: resolvedCustomerNumber,
     createdAt: now,
     updatedAt: now,
   };
@@ -104,6 +122,7 @@ export function upsertExternalCustomer(
       ...prev,
       ...payload,
       id: prev.id,
+      customerNumber: prev.customerNumber || resolvedCustomerNumber,
       createdAt: prev.createdAt || now,
       updatedAt: now,
     };

@@ -17,6 +17,11 @@ import {
 } from "@/lib/flowStatus";
 import { supabase } from "@/lib/supabaseClient";
 import { BUCKET_DOCS, OFFER_BUCKET } from "@/lib/storage";
+import {
+  collectCustomerNumbersFromLocalStorage,
+  generateUniqueCustomerNumber,
+  normalizeCustomerNumber,
+} from "@/lib/customerNumbers";
 
 type DocFile = { name: string; url: string };
 type BkFile = { name: string; url: string; type: "image" | "pdf" };
@@ -398,6 +403,7 @@ export default function KundDetaljsida() {
   const offertPagesRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    const takenNumbers = collectCustomerNumbersFromLocalStorage();
     // Först försök hämta från den nya strukturen (paperflow_customers_v1)
     const existingCustomers = JSON.parse(
       localStorage.getItem("paperflow_customers_v1") || "[]"
@@ -407,7 +413,10 @@ export default function KundDetaljsida() {
     );
 
     if (customer) {
-      setData({
+      const ensuredNumber =
+        normalizeCustomerNumber(customer.customerNumber) ||
+        generateUniqueCustomerNumber(takenNumbers);
+      const snapshot = {
         companyName: customer.companyName || "",
         orgNr: customer.orgNr || "",
         contactPerson: customer.contactPerson || "",
@@ -420,29 +429,39 @@ export default function KundDetaljsida() {
         country: customer.country || "Sverige",
         contactDate: customer.contactDate || "",
         notes: customer.notes || "",
-        customerNumber: customer.customerNumber || "",
+        customerNumber: ensuredNumber,
         offerText: customer.offerText || "",
         totalSum: customer.totalSum || "",
         vatPercent: customer.vatPercent || "",
         vatAmount: customer.vatAmount || "",
         validityDays: customer.validityDays || "",
-      });
+      };
+      setData(snapshot);
+      if (!normalizeCustomerNumber(customer.customerNumber)) {
+        persistCustomerSnapshot(id, snapshot);
+      }
     } else {
       const saved = localStorage.getItem(`kund_${id}`);
       if (saved) {
         const parsed = JSON.parse(saved);
-        setData({
+        const ensuredNumber =
+          normalizeCustomerNumber(parsed.customerNumber) ||
+          generateUniqueCustomerNumber(takenNumbers);
+        const snapshot = {
           ...parsed,
+          customerNumber: ensuredNumber,
           offerText: "",
           totalSum: "",
           vatPercent: "",
           vatAmount: "",
           validityDays: "",
-        });
+        };
+        setData(snapshot);
+        if (!normalizeCustomerNumber(parsed.customerNumber)) {
+          persistCustomerSnapshot(id, snapshot);
+        }
       } else {
-        const nyttKundnummer = `K-${Math.floor(
-          100000 + Math.random() * 900000
-        )}`;
+        const nyttKundnummer = generateUniqueCustomerNumber(takenNumbers);
         const initialData = {
           ...data,
           customerNumber: nyttKundnummer,
