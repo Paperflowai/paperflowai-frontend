@@ -1,0 +1,33 @@
+{
+  "customers": [
+    {
+      "name": "ACME AB",
+      "organization_number": "556677-8899",
+      "email": "finance@acme.test"
+    }
+  ],
+  "offers": [
+    {
+      "offer_number": "OFF-1001",
+      "customer": {
+        "name": "ACME AB",
+        "organization_number": "556677-8899"
+      },
+      "total_amount": 12500.5,
+      "currency": "SEK",
+      "issued_at": "2024-10-01"
+    }
+  ],
+  "receipts": [
+    {
+      "receipt_number": "RCPT-9001",
+      "customer": {
+        "name": "ACME AB",
+        "organization_number": "556677-8899"
+      },
+      "total_amount": 12500.5,
+      "vat_amount": 2500.1,
+      "issued_at": "2024-10-15"
+    }
+  ]
+}

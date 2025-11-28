@@ -16,7 +16,7 @@ import LogoutButton from "@/components/LogoutButton";
 const AUTH_DISABLED = process.env.NEXT_PUBLIC_DISABLE_AUTH === '1' || process.env.NODE_ENV === 'development';
 
 type Kund = {
-  id: number;
+  id: string;
   companyName: string;
   orgNr: string;
   contactPerson: string;
@@ -471,9 +471,9 @@ useEffect(() => {
 
   useEffect(() => {
     if (!isClient) return;
-    laddaKunder();
+    void laddaKunder();
     loadEntries();
-    const onStorage = () => { laddaKunder(); loadEntries(); };
+    const onStorage = () => { void laddaKunder(); loadEntries(); };
     window.addEventListener('storage', onStorage);
     return () => {
       window.removeEventListener('storage', onStorage);
@@ -544,16 +544,17 @@ useEffect(() => {
     });
   }, [displayedEntries]);
 
-  const laddaKunder = () => {
+  const laddaKunder = async () => {
     const keys = Object.keys(localStorage).filter((k) => /^kund_\d+$/.test(k));
-    const list: Kund[] = [];
+    const localList: Kund[] = [];
     for (const key of keys) {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
       try {
         const parsed: Partial<Kund> = JSON.parse(raw) || {};
-        const id = Number.isFinite(parsed.id as number) ? (parsed.id as number) : parseInt(key.split('_')[1], 10);
-        if (!id || Number.isNaN(id)) continue;
+        const idRaw = (parsed.id as string | number | undefined) ?? key.split('_')[1];
+        const id = typeof idRaw === 'number' ? String(idRaw) : (idRaw ? String(idRaw) : '');
+        if (!id) continue;
 
         const companyName = (parsed.companyName || '').trim();
         const hasOffert = !!localStorage.getItem(`kund_offert_${id}`) || !!localStorage.getItem(`sent_offer_${id}`);
@@ -562,7 +563,7 @@ useEffect(() => {
         const isEmpty = !companyName && !hasOffert && !hasOrder && !hasInvoice;
 
         if (!isEmpty || DEMO_CUSTOMERS.has(companyName)) {
-          list.push({
+          localList.push({
             id,
             companyName: companyName || 'Namnlös kund',
             orgNr: parsed.orgNr || '',
@@ -581,8 +582,99 @@ useEffect(() => {
         }
       } catch {}
     }
-    const unique = Array.from(new Map(list.map((c) => [c.id, c])).values());
-    setCustomers(unique);
+
+    const uniqueLocal = Array.from(new Map(localList.map((c) => [c.id, c])).values());
+    const supabaseCustomers = await loadSupabaseCustomers();
+    const merged = new Map<string, Kund>();
+    [...uniqueLocal, ...supabaseCustomers].forEach((c) => merged.set(c.id, c));
+    setCustomers(Array.from(merged.values()));
+  };
+
+  const loadSupabaseCustomers = async (): Promise<Kund[]> => {
+    try {
+      const { data, error } = await supabase.from('customers').select('*');
+      if (error) {
+        console.warn('Kunde inte ladda kunder från Supabase:', error.message);
+        return [];
+      }
+
+      const baseRows = (data as any[]) || [];
+      const map = new Map<string, Kund>();
+
+      for (const row of baseRows) {
+        const id = row?.id ? String(row.id) : '';
+        if (!id) continue;
+        map.set(id, {
+          id,
+          companyName: (row?.name || row?.company_name || '').trim() || 'Namnlös kund',
+          orgNr: row?.orgnr || '',
+          contactPerson: row?.contact_person || '',
+          role: row?.role || '',
+          phone: row?.phone || '',
+          email: row?.email || '',
+          address: row?.address || '',
+          zip: row?.zip || '',
+          city: row?.city || '',
+          country: row?.country || 'Sverige',
+          contactDate: row?.updated_at || row?.created_at || '',
+          notes: row?.notes || '',
+          customerNumber: row?.customer_number || '',
+        });
+      }
+
+      try {
+        const { data: cards, error: cardErr } = await supabase.from('customer_cards').select('*');
+        if (cardErr) {
+          console.warn('Kunde inte ladda customer_cards:', cardErr.message);
+        } else {
+          const cardRows = (cards as any[]) || [];
+          for (const card of cardRows) {
+            const id = card?.customer_id ? String(card.customer_id) : (card?.id ? String(card.id) : '');
+            if (!id) continue;
+            const existing = map.get(id) || {
+              id,
+              companyName: '',
+              orgNr: '',
+              contactPerson: '',
+              role: '',
+              phone: '',
+              email: '',
+              address: '',
+              zip: '',
+              city: '',
+              country: 'Sverige',
+              contactDate: '',
+              notes: '',
+              customerNumber: '',
+            };
+
+            map.set(id, {
+              ...existing,
+              companyName: (card?.company_name || card?.name || existing.companyName || '').trim() || 'Namnlös kund',
+              orgNr: card?.orgnr || existing.orgNr || '',
+              contactPerson: card?.contact_person || card?.contactPerson || existing.contactPerson || '',
+              role: card?.role || card?.contact_role || existing.role || '',
+              phone: card?.phone || existing.phone || '',
+              email: card?.email || existing.email || '',
+              address: card?.address || existing.address || '',
+              zip: card?.zip || existing.zip || '',
+              city: card?.city || existing.city || '',
+              country: card?.country || existing.country || 'Sverige',
+              contactDate: card?.updated_at || existing.contactDate || '',
+              notes: card?.notes || existing.notes || '',
+              customerNumber: card?.customer_number || existing.customerNumber || '',
+            });
+          }
+        }
+      } catch (cardErr: any) {
+        console.warn('Kunde inte hämta customer_cards:', cardErr?.message || cardErr);
+      }
+
+      return Array.from(map.values());
+    } catch (e: any) {
+      console.warn('Okänt fel vid laddning av kunder:', e?.message || e);
+      return [];
+    }
   };
 
   function loadEntries() {
@@ -727,7 +819,7 @@ useEffect(() => {
   }
 
   const skapaNyKund = () => router.push(`/kund/${Date.now()}`);
-  const taBortKund = (id: number) => {
+  const taBortKund = (id: string) => {
     if (!confirm('Är du säker på att du vill ta bort kunden?')) return;
     localStorage.removeItem(`kund_${id}`);
     localStorage.removeItem(`kund_files_${id}`);
