@@ -473,7 +473,7 @@ useEffect(() => {
     if (!isClient) return;
     // 🔄 ENDAST: Läs bara från Supabase (localStorage synkas automatiskt)
     laddaKunder();
-    const onStorage = () => { loadEntries(); }; // Ta bort laddaKunder() för att undvika localStorage-läsning
+    const onStorage = () => { loadEntries(); laddaKunder(); };
     window.addEventListener('storage', onStorage);
     
     return () => {
@@ -545,46 +545,150 @@ useEffect(() => {
     });
   }, [displayedEntries]);
 
+const LOCAL_CUSTOMER_STORAGE_KEY = "paperflow_customers_v1";
+const LOCAL_CARD_PREFIX = "kund_";
+const LOCAL_CARD_SKIP_PREFIXES = [
+  "kund_offert_",
+  "kund_order_",
+  "kund_invoice_",
+  "kund_files_",
+  "kund_images_",
+  "kund_sent_",
+  "kund_bookkeeping_",
+];
+
+function normalizeCustomerId(customer: Kund, prefix: string, index: number): Kund {
+  return {
+    ...customer,
+    id: customer.id || customer.customerNumber || customer.companyName || `${prefix}-${index}`,
+  };
+}
+
+function loadLocalCustomerCards(): Kund[] {
+  if (typeof localStorage === "undefined") return [];
+
+  const result: Kund[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (!key) continue;
+    if (!key.startsWith(LOCAL_CARD_PREFIX)) continue;
+    if (LOCAL_CARD_SKIP_PREFIXES.some((prefix) => key.startsWith(prefix))) continue;
+
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
+
+    try {
+      const data = JSON.parse(raw) || {};
+      const customerId = key.slice(LOCAL_CARD_PREFIX.length);
+
+      result.push({
+        id: customerId || data.customerNumber || data.companyName || `local-${i}`,
+        companyName: (data.companyName || "").trim(),
+        orgNr: data.orgNr || "",
+        contactPerson: data.contactPerson || "",
+        role: data.role || "",
+        phone: data.phone || "",
+        email: data.email || "",
+        address: data.address || "",
+        zip: data.zip || "",
+        city: data.city || "",
+        country: data.country || "Sverige",
+        contactDate: data.contactDate || "",
+        notes: data.notes || "",
+        customerNumber: data.customerNumber || "",
+      });
+    } catch (err) {
+      console.warn("Kunde inte läsa lokalt kundkort", err);
+    }
+  }
+
+  return result;
+}
+
+function loadOfferCustomers(): Kund[] {
+  if (typeof localStorage === "undefined") return [];
+
+  try {
+    const raw = localStorage.getItem(LOCAL_CUSTOMER_STORAGE_KEY);
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.map((c: any, idx: number) => ({
+      id: c?.id ? String(c.id) : `offer-${idx}`,
+      companyName: (c?.companyName || "").trim(),
+      orgNr: c?.orgNr || "",
+      contactPerson: c?.contactPerson || "",
+      role: c?.role || "",
+      phone: c?.phone || "",
+      email: c?.email || "",
+      address: c?.address || "",
+      zip: c?.zip || "",
+      city: c?.city || "",
+      country: c?.country || "Sverige",
+      contactDate: c?.contactDate || "",
+      notes: c?.notes || "",
+      customerNumber: c?.customerNumber || "",
+    }));
+  } catch (err) {
+    console.warn("Kunde inte läsa lokala offertkunder", err);
+    return [];
+  }
+}
+
 const laddaKunder = async () => {
-  // 🔄 ENDAST: Läs bara från Supabase (localStorage synkas automatiskt)
+  const localCards = loadLocalCustomerCards();
+  const offerCustomers = loadOfferCustomers();
+
+  let dbCustomers: Kund[] = [];
+
   try {
     const { data, error } = await supabase
-      .from('customers')
-      .select('id, name, orgnr, email, phone, address, zip, city, country');
+      .from("customers")
+      .select("id, name, orgnr, email, phone, address, zip, city, country");
 
     if (error) {
-      console.error('Kunde inte hämta customers från Supabase:', error.message);
-      setCustomers([]);
-      return;
+      console.error("Kunde inte hämta customers från Supabase:", error.message);
+    } else {
+      dbCustomers = (data || []).map((row: any) => ({
+        id: String(row.id),
+        companyName: (row.name || "").trim(),
+        orgNr: row.orgnr || "",
+        contactPerson: "",
+        role: "",
+        phone: row.phone || "",
+        email: row.email || "",
+        address: row.address || "",
+        zip: row.zip || "",
+        city: row.city || "",
+        country: row.country || "Sverige",
+        contactDate: "",
+        notes: "",
+        customerNumber: "",
+      }));
     }
-
-    const dbCustomers: Kund[] = (data || []).map((row: any) => ({
-  id: String(row.id),
-  companyName: (row.name || '').trim(),
-
-      orgNr: row.orgnr || '',
-      contactPerson: '',
-      role: '',
-      phone: row.phone || '',
-      email: row.email || '',
-      address: row.address || '',
-      zip: row.zip || '',
-      city: row.city || '',
-      country: row.country || 'Sverige',
-      contactDate: '',
-      notes: '',
-      customerNumber: '',
-    }));
-
-    // Filtrera bort demo-kunder
-    const filteredCustomers = dbCustomers.filter(c => !DEMO_CUSTOMERS.has(c.companyName));
-    const uniqueAll = Array.from(new Map(filteredCustomers.map((c) => [c.id, c])).values());
-    setCustomers(uniqueAll);
-
   } catch (e) {
-    console.error('Fel vid laddaKunder:', e);
-    setCustomers([]);
+    console.error("Fel vid laddaKunder:", e);
   }
+
+  const filteredSupabase = dbCustomers
+    .filter((c) => !DEMO_CUSTOMERS.has(c.companyName))
+    .map((c, idx) => normalizeCustomerId(c, "db", idx));
+
+  const normalizedLocalCards = localCards.map((c, idx) => normalizeCustomerId(c, "local", idx));
+  const normalizedOfferCustomers = offerCustomers.map((c, idx) =>
+    normalizeCustomerId(c, "offer", idx)
+  );
+
+  const allCustomers = [
+    ...filteredSupabase,
+    ...normalizedLocalCards,
+    ...normalizedOfferCustomers,
+  ];
+
+  const uniqueAll = Array.from(new Map(allCustomers.map((c) => [c.id, c])).values());
+  setCustomers(uniqueAll);
 };
 
   function loadEntries() {

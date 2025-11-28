@@ -167,7 +167,7 @@ export default function KundDetaljsida() {
   const router = useRouter();
 
   const customerId = String((params as { id?: string })?.id ?? "");
-  const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
+  const id = customerId;
 
   // Flow status hook
   const { status, save } = useFlowStatusSupabase(customerId);
@@ -1840,8 +1840,8 @@ export default function KundDetaljsida() {
       </div>
 
       {/* Offerter */}
-      <OfferRealtime customerId={String(id)} />
-      <OfferList customerId={String(id)} />
+      <OfferRealtime customerId={customerId} />
+      <OfferList customerId={customerId} />
       {/* Alla dokument för kunden */}
       <SectionCard title="📂 Alla dokument">
         {docsLoading && (
