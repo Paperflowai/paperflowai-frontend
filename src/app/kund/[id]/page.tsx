@@ -545,21 +545,15 @@ export default function KundDetaljsida() {
   useEffect(() => {
     if (!id) return;
 
-    const hasCoreData = Boolean(
-      data.companyName ||
-        data.email ||
-        data.phone ||
-        data.address ||
-        data.zip ||
-        data.city ||
-        data.orgNr
+    const hasBlankFields = Object.values(data).some(
+      (value) => !value || value.trim().length === 0
     );
+
+    if (!hasBlankFields) return;
 
     let cancelled = false;
 
     const hydrateFromRemote = async () => {
-      if (hasCoreData) return;
-
       const fetchCustomer = async (url: string) => {
         try {
           const res = await fetch(url);
@@ -583,6 +577,13 @@ export default function KundDetaljsida() {
 
       setData((prev) => {
         const merged = mergeCustomerSnapshot(prev, incoming);
+        const unchanged = Object.keys(prev).every((key) => {
+          const typedKey = key as keyof CustomerFormState;
+          return prev[typedKey] === merged[typedKey];
+        });
+
+        if (unchanged) return prev;
+
         persistCustomerSnapshot(id, merged);
         return merged;
       });
@@ -593,16 +594,7 @@ export default function KundDetaljsida() {
     return () => {
       cancelled = true;
     };
-  }, [
-    id,
-    data.companyName,
-    data.email,
-    data.phone,
-    data.address,
-    data.zip,
-    data.city,
-    data.orgNr,
-  ]);
+  }, [id, data]);
 
   useEffect(() => {
     if (!isMobile || !offert?.url || !offertPagesRef.current) return;
