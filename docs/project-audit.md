@@ -1,8 +1,16 @@
 # Project health audit
 
 ## Current ranking
-- **Mode detected:** Demo/local fallback because Supabase admin credentials are missing in the environment.
+- **Mode detected:** Demo/local fallback because Supabase admin credentials are still missing in the environment.
 - **Overall readiness:** Good for local/demo customer capture; blocked on Supabase storage for document linking and invoice/order stamping.
+- **Upgrade path:** Set `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` for client use and `SUPABASE_SERVICE_ROLE_KEY` for server routes to move into the fully online Supabase mode.
+
+## Latest validation run
+The most recent `npm run simulate:flow` (local/demo mode) produced the following snapshot:
+- Customer created in the hook store with ID `8620059e-8513-40c8-a5dc-feb6309a73fe` and persisted customer number `K-678414`.
+- Flow flags advanced from blank to `offerSent`, `orderCreated`, and `invoiceCreated` while respecting the demo-mode safeguards.
+- Document linking was skipped because Supabase admin credentials were absent; this is expected until real Supabase secrets are provided.
+- Cleanup removed the temporary hook store (`.data/simulation-hooks.json`), leaving no residual demo data.
 
 ## What currently works (based on simulation)
 - External customer hook storage can upsert, list, and delete customers using the file-backed store.
