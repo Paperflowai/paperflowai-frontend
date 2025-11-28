@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 
 export default function LogoutButton() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -11,6 +11,10 @@ export default function LogoutButton() {
 
   const handleLogout = async () => {
     if (isLoggingOut) return;
+    if (!supabaseConfigured) {
+      router.push("/");
+      return;
+    }
     
     setIsLoggingOut(true);
     try {

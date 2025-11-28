@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabaseClient";
+import { supabase, supabaseConfigured } from "./supabaseClient";
 
 export type FlowStatus = {
   offerSent: boolean;
@@ -31,6 +31,27 @@ type Row = {
 
 const TABLE = "flow_status";
 
+const LOCAL_FLOW_PREFIX = "flow_status:";
+
+const readLocalFlowStatus = (customerId: string): FlowStatus => {
+  if (typeof localStorage === "undefined") return defaultFlow;
+  try {
+    const raw = localStorage.getItem(`${LOCAL_FLOW_PREFIX}${customerId}`);
+    return raw ? { ...defaultFlow, ...JSON.parse(raw) } : defaultFlow;
+  } catch {
+    return defaultFlow;
+  }
+};
+
+const writeLocalFlowStatus = (customerId: string, status: FlowStatus) => {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(`${LOCAL_FLOW_PREFIX}${customerId}`, JSON.stringify(status));
+  } catch {
+    // swallow
+  }
+};
+
 const toStatus = (r: Row | null): FlowStatus =>
   r ? ({
     offerSent: r.offer_sent,
@@ -42,8 +63,10 @@ const toStatus = (r: Row | null): FlowStatus =>
   }) : defaultFlow;
 
 export async function loadFlowStatus(customerId: string): Promise<FlowStatus> {
-  const { data, error } = await supabase
-    .from<Row>(TABLE)
+  if (!supabaseConfigured) return readLocalFlowStatus(customerId);
+
+  const { data, error } = await (supabase as any)
+    .from(TABLE)
     .select("*")
     .eq("customer_id", customerId)
     .maybeSingle();
@@ -54,7 +77,13 @@ export async function loadFlowStatus(customerId: string): Promise<FlowStatus> {
 export async function upsertFlowStatus(customerId: string, patch: Partial<FlowStatus>): Promise<FlowStatus> {
   const curr = await loadFlowStatus(customerId);
   const next: FlowStatus = { ...curr, ...patch };
-  const { error } = await supabase.from(TABLE).upsert({
+
+  if (!supabaseConfigured) {
+    writeLocalFlowStatus(customerId, next);
+    return next;
+  }
+
+  const { error } = await (supabase as any).from(TABLE).upsert({
     customer_id: customerId,
     offer_sent: next.offerSent,
     order_created: next.orderCreated,

@@ -2,7 +2,7 @@
 "use client";
 
 import { useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -11,10 +11,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const supabaseReady = supabaseConfigured;
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!supabaseReady) {
+      setError("Supabase är inte konfigurerat i demo-läget.");
+      return;
+    }
 
     const { error } = await supabase.auth.signUp({ email, password });
     if (error) {
@@ -27,6 +33,11 @@ export default function LoginPage() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!supabaseReady) {
+      setError("Supabase är inte konfigurerat i demo-läget.");
+      return;
+    }
 
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -76,6 +87,7 @@ export default function LoginPage() {
 
         <button
           onClick={handleLogin}
+          disabled={!supabaseReady}
           className="w-full bg-indigo-500 text-white py-2 rounded hover:bg-indigo-600"
         >
           Logga in
@@ -83,6 +95,7 @@ export default function LoginPage() {
 
         <button
           onClick={handleSignup}
+          disabled={!supabaseReady}
           className="w-full bg-green-500 text-white py-2 rounded hover:bg-green-600"
         >
           Skapa konto

@@ -91,6 +91,8 @@ const OfferPdf: React.FC<OfferPdfProps> = ({ data, variant = 'offer', logoUrl, r
   const currentDate = new Date().toLocaleDateString('sv-SE');
   const validTill = data.validTill || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('sv-SE');
   const title = variant === 'orderConfirmation' ? 'ORDERBEKRÄFTELSE' : 'OFFERT';
+  const logoAlt = data.kundnamn ? `Logotyp för ${data.kundnamn}` : 'Företagslogotyp';
+  const rotAlt = 'Information om ROT-avdrag (skattereduktion)';
 
   return (
     <Document>
@@ -103,7 +105,7 @@ const OfferPdf: React.FC<OfferPdfProps> = ({ data, variant = 'offer', logoUrl, r
         {/* Logo if provided */}
         {logoUrl && (
           <View style={{ alignItems: 'center', marginBottom: 20 }}>
-            <Image src={logoUrl} style={{ width: 100, height: 50 }} />
+            <Image src={logoUrl} style={{ width: 100, height: 50 }} alt={logoAlt} />
           </View>
         )}
 
@@ -135,7 +137,7 @@ const OfferPdf: React.FC<OfferPdfProps> = ({ data, variant = 'offer', logoUrl, r
         {/* ROT Image if provided */}
         {rotImageUrl && (
           <View style={{ alignItems: 'center', marginTop: 20 }}>
-            <Image src={rotImageUrl} style={{ width: 200, height: 100 }} />
+            <Image src={rotImageUrl} style={{ width: 200, height: 100 }} alt={rotAlt} />
           </View>
         )}
 

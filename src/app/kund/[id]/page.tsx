@@ -15,8 +15,13 @@ import {
   loadFlowStatus,
   upsertFlowStatus,
 } from "@/lib/flowStatus";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { BUCKET_DOCS, OFFER_BUCKET } from "@/lib/storage";
+import {
+  collectCustomerNumbersFromLocalStorage,
+  generateUniqueCustomerNumber,
+  normalizeCustomerNumber,
+} from "@/lib/customerNumbers";
 
 type DocFile = { name: string; url: string };
 type BkFile = { name: string; url: string; type: "image" | "pdf" };
@@ -30,6 +35,29 @@ type CustomerDocument = {
   pdf_url?: string | null;
   url?: string | null;
 };
+
+type CustomerFormState = {
+  companyName: string;
+  orgNr: string;
+  contactPerson: string;
+  role: string;
+  phone: string;
+  email: string;
+  address: string;
+  zip: string;
+  city: string;
+  country: string;
+  contactDate: string;
+  notes: string;
+  customerNumber: string;
+  offerText: string;
+  totalSum: string;
+  vatPercent: string;
+  vatAmount: string;
+  validityDays: string;
+};
+
+const CUSTOMER_STORE_KEY = "paperflow_customers_v1";
 
 declare global {
   interface Window {
@@ -138,6 +166,89 @@ function useFlowStatusSupabase(customerId: string) {
 // Liten väntare för demo innan riktiga API-anrop kopplas på
 const fakeWait = (ms = 500) => new Promise((r) => setTimeout(r, ms));
 
+function mapIncomingCustomer(card: any): CustomerFormState | null {
+  if (!card) return null;
+
+  return {
+    companyName: (card.name || card.companyName || "").trim(),
+    orgNr: card.orgnr || card.orgNr || "",
+    contactPerson: card.contactPerson || card.contact_person || "",
+    role: "",
+    phone: card.phone || "",
+    email: card.email || "",
+    address: card.address || "",
+    zip: card.zip || "",
+    city: card.city || "",
+    country: card.country || "Sverige",
+    contactDate: card.contactDate || "",
+    notes: card.notes || "",
+    customerNumber: card.customerNumber || card.customer_number || "",
+    offerText: "",
+    totalSum: "",
+    vatPercent: "",
+    vatAmount: "",
+    validityDays: "",
+  };
+}
+
+function mergeCustomerSnapshot(
+  prev: CustomerFormState,
+  incoming: CustomerFormState
+): CustomerFormState {
+  const pick = (first?: string, second?: string) =>
+    (first && first.trim().length > 0 ? first : second || "");
+
+  return {
+    ...prev,
+    companyName: pick(prev.companyName, incoming.companyName),
+    orgNr: pick(prev.orgNr, incoming.orgNr),
+    contactPerson: pick(prev.contactPerson, incoming.contactPerson),
+    role: pick(prev.role, incoming.role),
+    phone: pick(prev.phone, incoming.phone),
+    email: pick(prev.email, incoming.email),
+    address: pick(prev.address, incoming.address),
+    zip: pick(prev.zip, incoming.zip),
+    city: pick(prev.city, incoming.city),
+    country: pick(prev.country, incoming.country || "Sverige"),
+    contactDate: pick(prev.contactDate, incoming.contactDate),
+    notes: pick(prev.notes, incoming.notes),
+    customerNumber: pick(prev.customerNumber, incoming.customerNumber),
+    offerText: pick(prev.offerText, incoming.offerText),
+    totalSum: pick(prev.totalSum, incoming.totalSum),
+    vatPercent: pick(prev.vatPercent, incoming.vatPercent),
+    vatAmount: pick(prev.vatAmount, incoming.vatAmount),
+    validityDays: pick(prev.validityDays, incoming.validityDays),
+  };
+}
+
+function persistCustomerSnapshot(customerId: string, snapshot: CustomerFormState) {
+  if (typeof localStorage === "undefined") return;
+
+  try {
+    const raw = localStorage.getItem(CUSTOMER_STORE_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    const idx = list.findIndex(
+      (c: any) => String(c?.id ?? c?.customerNumber) === String(customerId)
+    );
+
+    const next = {
+      ...snapshot,
+      id: customerId,
+    };
+
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...next };
+    } else {
+      list.push(next);
+    }
+
+    localStorage.setItem(CUSTOMER_STORE_KEY, JSON.stringify(list));
+    localStorage.setItem(`kund_${customerId}`, JSON.stringify(next));
+  } catch (err) {
+    console.warn("Kunde inte spara kundkortsläge", err);
+  }
+}
+
 /* =======================
    React Components
    ======================= */
@@ -167,13 +278,20 @@ export default function KundDetaljsida() {
   const router = useRouter();
 
   const customerId = String((params as { id?: string })?.id ?? "");
-  const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
+  const id = customerId;
 
   // Flow status hook
   const { status, save } = useFlowStatusSupabase(customerId);
 
   // Handle creating order from offer
   const handleCreateOrder = async () => {
+    if (!supabaseConfigured) {
+      alert(
+        "Supabase är inte konfigurerat. Lägg till dina miljövariabler för att skapa order."
+      );
+      return;
+    }
+
     setOrderLoading(true);
     try {
       const res = await fetch("/api/orders/create-from-offer", {
@@ -188,6 +306,25 @@ export default function KundDetaljsida() {
       });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
+      if (json?.path) {
+        latestOrderPathRef.current = json.path;
+      }
+      if (json?.path) {
+        setFlowDocuments((prev) => ({
+          ...prev,
+          orders: [
+            {
+              id: json.path,
+              storage_path: json.path,
+              type: "order",
+              filename: json.path.split("/").pop() || "order.pdf",
+              file_url: json.fileUrl ?? null,
+              created_at: new Date().toISOString(),
+            },
+            ...(prev.orders || []),
+          ],
+        }));
+      }
       // Fallback: hämta order-PDF som Blob via path/bucket och visa som blob:URL
       if (json?.ok && json?.path && json?.bucket) {
         const { data: file, error } = await supabase.storage
@@ -237,7 +374,113 @@ export default function KundDetaljsida() {
     }
   };
 
-  const [data, setData] = useState({
+  const handleCreateInvoice = async () => {
+    if (!supabaseConfigured) {
+      alert(
+        "Supabase är inte konfigurerat. Lägg till dina miljövariabler för att skapa faktura."
+      );
+      return;
+    }
+
+    const orderPath = latestOrderPathRef.current;
+    if (!orderPath) {
+      alert("Ingen order-PDF hittad. Skapa order först.");
+      return;
+    }
+
+    setInvoiceLoading(true);
+    try {
+      const res = await fetch("/api/invoices/create-from-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          customerId,
+          orderPath,
+          bucket: BUCKET_DOCS,
+        }),
+      });
+
+      if (!res.ok) throw new Error(await res.text());
+
+      const json = await res.json();
+      if (json?.path) {
+        latestInvoicePathRef.current = json.path;
+        setFlowDocuments((prev) => ({
+          ...prev,
+          invoices: [
+            {
+              id: json.path,
+              storage_path: json.path,
+              type: "invoice",
+              filename: json.path.split("/").pop() || "invoice.pdf",
+              file_url: json.fileUrl ?? null,
+              created_at: new Date().toISOString(),
+            },
+            ...(prev.invoices || []),
+          ],
+        }));
+      }
+
+      if (json?.ok && json?.path && json?.bucket) {
+        const { data: file, error } = await supabase.storage
+          .from(json.bucket)
+          .download(json.path);
+
+        if (error || !file) {
+          console.error("[invoice] download failed", error?.message);
+        } else {
+          const pdfBlob =
+            file.type === "application/pdf"
+              ? file
+              : new Blob([file], { type: "application/pdf" });
+
+          const url = URL.createObjectURL(pdfBlob);
+          setInvoice({ name: json.path.split("/").pop() || "invoice.pdf", url });
+        }
+      }
+
+      await save({ invoiceCreated: true });
+    } catch (e: any) {
+      console.error(e);
+      alert(`Kunde inte skapa faktura: ${e.message || e}`);
+    } finally {
+      setInvoiceLoading(false);
+    }
+  };
+
+  const handleSendOffer = async () => {
+    setOfferSending(true);
+    try {
+      const { path } = await ensureOfferPath();
+      const res = await fetch("/api/offers/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          customerId,
+          offerPath: path,
+          bucket: BUCKET_DOCS,
+        }),
+      });
+
+      if (!res.ok) throw new Error(await res.text());
+
+      const json = await res.json();
+      setSentStatus((prev) => ({
+        ...prev,
+        offert: json?.sentAt || new Date().toISOString(),
+      }));
+      await save({ offerSent: true });
+    } catch (e: any) {
+      console.error(e);
+      alert(`Kunde inte markera offerten som skickad: ${e.message || e}`);
+    } finally {
+      setOfferSending(false);
+    }
+  };
+
+  const [data, setData] = useState<CustomerFormState>({
     companyName: "",
     orgNr: "",
     contactPerson: "",
@@ -265,6 +508,8 @@ export default function KundDetaljsida() {
   const [invoice, setInvoice] = useState<DocFile | null>(null);
   const [orderPdfUrl, setOrderPdfUrl] = useState<string | null>(null);
   const [orderLoading, setOrderLoading] = useState(false);
+  const [offerSending, setOfferSending] = useState(false);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
   const [offerPath, setOfferPath] = useState<string | null>(null);
   const [documents, setDocuments] = useState<CustomerDocument[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
@@ -274,6 +519,7 @@ export default function KundDetaljsida() {
     order: "",
     invoice: "",
   });
+  const [importingSample, setImportingSample] = useState(false);
 
   // New flow documents
   const [flowDocuments, setFlowDocuments] = useState<{
@@ -289,8 +535,14 @@ export default function KundDetaljsida() {
   const objectUrlsRef = useRef<string[]>([]);
   const offertCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const offertPagesRef = useRef<HTMLDivElement | null>(null);
+  const latestOrderPathRef = useRef<string | null>(null);
+  const latestInvoicePathRef = useRef<string | null>(null);
+  const autoOrderRequestedRef = useRef(false);
+  const autoInvoiceRequestedRef = useRef(false);
+  const [autoFlowEnabled, setAutoFlowEnabled] = useState(false);
 
   useEffect(() => {
+    const takenNumbers = collectCustomerNumbersFromLocalStorage();
     // Först försök hämta från den nya strukturen (paperflow_customers_v1)
     const existingCustomers = JSON.parse(
       localStorage.getItem("paperflow_customers_v1") || "[]"
@@ -300,7 +552,10 @@ export default function KundDetaljsida() {
     );
 
     if (customer) {
-      setData({
+      const ensuredNumber =
+        normalizeCustomerNumber(customer.customerNumber) ||
+        generateUniqueCustomerNumber(takenNumbers);
+      const snapshot = {
         companyName: customer.companyName || "",
         orgNr: customer.orgNr || "",
         contactPerson: customer.contactPerson || "",
@@ -313,29 +568,39 @@ export default function KundDetaljsida() {
         country: customer.country || "Sverige",
         contactDate: customer.contactDate || "",
         notes: customer.notes || "",
-        customerNumber: customer.customerNumber || "",
+        customerNumber: ensuredNumber,
         offerText: customer.offerText || "",
         totalSum: customer.totalSum || "",
         vatPercent: customer.vatPercent || "",
         vatAmount: customer.vatAmount || "",
         validityDays: customer.validityDays || "",
-      });
+      };
+      setData(snapshot);
+      if (!normalizeCustomerNumber(customer.customerNumber)) {
+        persistCustomerSnapshot(id, snapshot);
+      }
     } else {
       const saved = localStorage.getItem(`kund_${id}`);
       if (saved) {
         const parsed = JSON.parse(saved);
-        setData({
+        const ensuredNumber =
+          normalizeCustomerNumber(parsed.customerNumber) ||
+          generateUniqueCustomerNumber(takenNumbers);
+        const snapshot = {
           ...parsed,
+          customerNumber: ensuredNumber,
           offerText: "",
           totalSum: "",
           vatPercent: "",
           vatAmount: "",
           validityDays: "",
-        });
+        };
+        setData(snapshot);
+        if (!normalizeCustomerNumber(parsed.customerNumber)) {
+          persistCustomerSnapshot(id, snapshot);
+        }
       } else {
-        const nyttKundnummer = `K-${Math.floor(
-          100000 + Math.random() * 900000
-        )}`;
+        const nyttKundnummer = generateUniqueCustomerNumber(takenNumbers);
         const initialData = {
           ...data,
           customerNumber: nyttKundnummer,
@@ -345,7 +610,7 @@ export default function KundDetaljsida() {
           vatAmount: "",
           validityDays: "",
         };
-        localStorage.setItem(`kund_${id}`, JSON.stringify(initialData));
+        persistCustomerSnapshot(id, initialData);
         setData(initialData);
       }
     }
@@ -436,6 +701,60 @@ export default function KundDetaljsida() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  const hasBlankFields = React.useMemo(
+    () => Object.values(data).some((value) => !value || value.trim().length === 0),
+    [data]
+  );
+
+  const hydrateFromRemote = React.useCallback(async () => {
+    if (!id) return;
+
+    const fetchCustomer = async (url: string) => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const json = await res.json();
+        return json?.customer || json?.card || null;
+      } catch (err) {
+        console.warn("Kunde inte hämta kundkort från", url, err);
+        return null;
+      }
+    };
+
+    const supabaseCard = await fetchCustomer(
+      `/api/customer-cards/get?customerId=${id}`
+    );
+    const hookCard =
+      supabaseCard || (await fetchCustomer(`/api/customer-cards/hook?id=${id}`));
+    const incoming = mapIncomingCustomer(supabaseCard || hookCard);
+    applyIncomingCustomer(incoming);
+  }, [applyIncomingCustomer, id]);
+
+  useEffect(() => {
+    if (!id || !hasBlankFields) return;
+
+    let cancelled = false;
+    let inflight = false;
+
+    const runHydrate = async () => {
+      if (cancelled || inflight) return;
+      inflight = true;
+      try {
+        await hydrateFromRemote();
+      } finally {
+        inflight = false;
+      }
+    };
+
+    runHydrate();
+    const timer = setInterval(runHydrate, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [id, hasBlankFields, hydrateFromRemote]);
+
   useEffect(() => {
     if (!isMobile || !offert?.url || !offertPagesRef.current) return;
 
@@ -476,6 +795,51 @@ export default function KundDetaljsida() {
       loadFlowDocuments();
     }
   }, [id]);
+
+  useEffect(() => {
+    const latestOrder = flowDocuments.orders?.[0];
+    const latestInvoice = flowDocuments.invoices?.[0];
+
+    if (latestOrder) {
+      latestOrderPathRef.current =
+        (latestOrder as any).storage_path || (latestOrder as any).path || null;
+    }
+
+    if (latestInvoice) {
+      latestInvoicePathRef.current =
+        (latestInvoice as any).storage_path || (latestInvoice as any).path || null;
+    }
+  }, [flowDocuments]);
+
+  useEffect(() => {
+    if (!autoFlowEnabled) return;
+    if (orderLoading || invoiceLoading) return;
+
+    if (!status.orderCreated && offerPath && !autoOrderRequestedRef.current) {
+      autoOrderRequestedRef.current = true;
+      handleCreateOrder();
+      return;
+    }
+
+    if (
+      status.orderCreated &&
+      !status.invoiceCreated &&
+      latestOrderPathRef.current &&
+      !autoInvoiceRequestedRef.current
+    ) {
+      autoInvoiceRequestedRef.current = true;
+      handleCreateInvoice();
+    }
+  }, [
+    autoFlowEnabled,
+    status.orderCreated,
+    status.invoiceCreated,
+    offerPath,
+    orderLoading,
+    invoiceLoading,
+    handleCreateOrder,
+    handleCreateInvoice,
+  ]);
 
   // Fallback vid mount (om offerten redan fanns)
   useEffect(() => {
@@ -523,45 +887,104 @@ export default function KundDetaljsida() {
   }
 
   function persistData(updated: typeof data) {
-    const existingCustomers = JSON.parse(
-      localStorage.getItem("paperflow_customers_v1") || "[]"
-    );
-    const customerIndex = existingCustomers.findIndex(
-      (c: any) => String(c.id) === String(id)
-    );
-
-    if (customerIndex !== -1) {
-      existingCustomers[customerIndex] = {
-        ...existingCustomers[customerIndex],
-        companyName: updated.companyName,
-        orgNr: updated.orgNr,
-        contactPerson: updated.contactPerson,
-        role: updated.role,
-        phone: updated.phone,
-        email: updated.email,
-        address: updated.address,
-        zip: updated.zip,
-        city: updated.city,
-        country: updated.country,
-        contactDate: updated.contactDate,
-        notes: updated.notes,
-        customerNumber: updated.customerNumber,
-        offerText: updated.offerText,
-        totalSum: updated.totalSum,
-        vatPercent: updated.vatPercent,
-        vatAmount: updated.vatAmount,
-        validityDays: updated.validityDays,
-      };
-      localStorage.setItem(
-        "paperflow_customers_v1",
-        JSON.stringify(existingCustomers)
-      );
-    } else {
-      localStorage.setItem(`kund_${id}`, JSON.stringify(updated));
-    }
-
+    persistCustomerSnapshot(id, updated);
     setData(updated);
   }
+
+  const addImagePreview = React.useCallback(
+    (image: { name: string; url: string }, prepend = false) => {
+      setImages((prev) => {
+        const updated = prepend ? [image, ...prev] : [...prev, image];
+        localStorage.setItem(`kund_images_${id}`, JSON.stringify(updated));
+        return updated;
+      });
+    },
+    [id]
+  );
+
+  const applyIncomingCustomer = React.useCallback(
+    (incoming: CustomerFormState | null) => {
+      if (!incoming) return false;
+
+      let changed = false;
+      setData((prev) => {
+        const merged = mergeCustomerSnapshot(prev, incoming);
+        const unchanged = Object.keys(prev).every((key) => {
+          const typedKey = key as keyof CustomerFormState;
+          return prev[typedKey] === merged[typedKey];
+        });
+
+        if (unchanged) return prev;
+
+        persistCustomerSnapshot(id, merged);
+        changed = true;
+        return merged;
+      });
+
+      return changed;
+    },
+    [id]
+  );
+
+  const buildJsonPreview = React.useCallback((title: string, subtitle?: string) => {
+    const top = title || "JSON-kund";
+    const bottom = subtitle ? subtitle : "Importerad";
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="800" height="600">
+        <rect width="800" height="600" fill="#0ea5e9" />
+        <text x="50%" y="45%" dominant-baseline="middle" text-anchor="middle"
+          font-size="48" font-family="Arial" fill="white">${top}</text>
+        <text x="50%" y="60%" dominant-baseline="middle" text-anchor="middle"
+          font-size="28" font-family="Arial" fill="white" opacity="0.85">${bottom}</text>
+      </svg>`;
+
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  }, []);
+
+  const importCustomerJson = React.useCallback(
+    async (sourceLabel: string, payload: any, prependImage = true) => {
+      const record = payload?.customer || payload?.card || payload;
+      const incoming = mapIncomingCustomer(record);
+
+      const previewName =
+        record?.name || record?.companyName || sourceLabel || "json-kund";
+      const previewMeta = record?.customerNumber || record?.orgnr || "";
+      const previewUrl = buildJsonPreview(previewName, previewMeta);
+      addImagePreview({ name: `${sourceLabel}.json`, url: previewUrl }, prependImage);
+
+      const changed = applyIncomingCustomer(incoming);
+      if (changed) {
+        setAutoFlowEnabled(true);
+        autoOrderRequestedRef.current = false;
+        autoInvoiceRequestedRef.current = false;
+      }
+      return changed;
+    },
+    [
+      addImagePreview,
+      applyIncomingCustomer,
+      buildJsonPreview,
+      setAutoFlowEnabled,
+    ]
+  );
+
+  const importCustomerJsonFromUrl = React.useCallback(
+    async (url: string) => {
+      setImportingSample(true);
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Kunde inte läsa JSON (${res.status})`);
+        const payload = await res.json();
+        await importCustomerJson("demo-customer", payload);
+      } catch (err: any) {
+        console.warn("Kunde inte importera testkund", err);
+        alert("Kunde inte importera testkund från JSON: " + (err?.message || err));
+      } finally {
+        setImportingSample(false);
+      }
+    },
+    [importCustomerJson]
+  );
 
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -571,23 +994,36 @@ export default function KundDetaljsida() {
     persistData(updated);
   }
 
-  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const uploaded = e.target.files;
     if (!uploaded) return;
 
-    Array.from(uploaded).forEach((file) => {
+    for (const file of Array.from(uploaded)) {
+      const isJson =
+        file.type === "application/json" || file.name.toLowerCase().endsWith(".json");
+
+      if (isJson) {
+        try {
+          const text = await file.text();
+          const parsed = JSON.parse(text);
+          await importCustomerJson(file.name.replace(/\.json$/i, ""), parsed);
+        } catch (err) {
+          console.warn("Kunde inte läsa JSON-kund från fil", err);
+          alert("JSON-filen kunde inte tolkas. Kontrollera formatet och försök igen.");
+        }
+        continue;
+      }
+
       const reader = new FileReader();
       reader.onload = () => {
         const result = reader.result as string;
         const newImage = { name: file.name, url: result };
-        setImages((prev) => {
-          const updated = [...prev, newImage];
-          localStorage.setItem(`kund_images_${id}`, JSON.stringify(updated));
-          return updated;
-        });
+        addImagePreview(newImage);
       };
       reader.readAsDataURL(file);
-    });
+    }
+
+    e.target.value = "";
   }
 
   function deleteImage(index: number) {
@@ -1661,12 +2097,11 @@ export default function KundDetaljsida() {
                   <button
                     type="button"
                     className="btn btn-primary flex items-center gap-1"
-                    onClick={async () => {
-                      alert("❌ Den här funktionen är borttagen.\n\nOffert skickas via GPT → PDF → plattformen.\nInga e-postutskick görs här längre.");
-                    }}
+                    onClick={handleSendOffer}
+                    disabled={offerSending}
                     title="Skicka offert"
                   >
-                    <Send size={16} /> Skicka
+                    <Send size={16} /> {offerSending ? "Skickar..." : "Skicka"}
                   </button>
 
 
@@ -1794,13 +2229,13 @@ export default function KundDetaljsida() {
               <button
                 type="button"
                 className="btn btn-outline"
-                onClick={async () => {
-                  await fakeWait();
-                  await save({ invoiceCreated: true });
-                }}
+                onClick={handleCreateInvoice}
+                disabled={
+                  invoiceLoading || (!status.orderCreated && !latestOrderPathRef.current)
+                }
                 title="Skapa faktura"
               >
-                Skapa faktura
+                {invoiceLoading ? "Skapar faktura..." : "Skapa faktura"}
               </button>
 
               <button
@@ -1811,7 +2246,7 @@ export default function KundDetaljsida() {
                   await fakeWait();
                   await save({ invoiceSent: true, invoicePosted: true });
                 }}
-                disabled={!status.invoiceCreated}
+                disabled={invoiceLoading || !status.invoiceCreated}
                 title="Skicka faktura"
               >
                 Skicka
@@ -1840,8 +2275,8 @@ export default function KundDetaljsida() {
       </div>
 
       {/* Offerter */}
-      <OfferRealtime customerId={String(id)} />
-      <OfferList customerId={String(id)} />
+      <OfferRealtime customerId={customerId} />
+      <OfferList customerId={customerId} />
       {/* Alla dokument för kunden */}
       <SectionCard title="📂 Alla dokument">
         {docsLoading && (
@@ -1889,10 +2324,23 @@ export default function KundDetaljsida() {
       </SectionCard>
 
       {/* Bilder och kladdlappar */}
-      <SectionCard title="📷 Bilder och kladdlappar">
+      <SectionCard
+        title="📷 Bilder och kladdlappar"
+        right={
+          <button
+            type="button"
+            onClick={() => importCustomerJsonFromUrl("/demo-customers/test-customer.json")}
+            className="text-sm text-blue-700 hover:underline disabled:opacity-50"
+            disabled={importingSample}
+            title="Ladda en testkund från JSON för att auto-fylla kundkortet"
+          >
+            {importingSample ? "Laddar testkund..." : "Importera testkund (JSON)"}
+          </button>
+        }
+      >
         <input
           type="file"
-          accept="image/*"
+          accept="image/*,application/json"
           multiple
           onChange={handleImageUpload}
           className="mt-2 mb-4 text-blue-700 font-semibold cursor-pointer"

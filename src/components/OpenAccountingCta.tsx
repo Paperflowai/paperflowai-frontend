@@ -3,19 +3,18 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
-
-// Använder dina publika env-nycklar
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL as string,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string
-);
+import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 
 export default function OpenAccountingCta() {
   const [loggedIn, setLoggedIn] = useState(false);
 
   useEffect(() => {
     let mounted = true;
+
+    if (!supabaseConfigured) {
+      setLoggedIn(false);
+      return;
+    }
 
     // Kolla om det finns session vid laddning
     supabase.auth.getSession().then(({ data: { session } }) => {

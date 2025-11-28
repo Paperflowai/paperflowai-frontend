@@ -28,6 +28,12 @@ Enterprise-grade SaaS platform for small business automation with AI-powered doc
 git clone <repository>
 cd offertplattform
 npm install
+# Copy environment and fill in Supabase keys before running any commands that hit the API
+cp env.example .env.local
+# Required values:
+#   NEXT_PUBLIC_SUPABASE_URL
+#   NEXT_PUBLIC_SUPABASE_ANON_KEY
+#   SUPABASE_SERVICE_ROLE_KEY
 npm run dev  # → http://localhost:3000
 
 # 2. OCR Service (new terminal)
@@ -72,6 +78,20 @@ Direkt mot backend lokalt:
 curl -X POST http://127.0.0.1:5000/ocr \
   -F "file=@ocr_server/test.jpg"
 ```
+
+## 🚑 Troubleshooting
+
+- **Build fails with missing Supabase keys**: Ensure `.env.local` includes `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`. The app only initializes Supabase when these values are present, so missing keys are the primary cause of local build failures.
+
+## 🧪 Testa kundkort med JSON-hook
+- Öppna valfritt kundkort i UI.
+- Klicka på knappen **"Importera testkund (JSON)"** i sektionen **"Bilder och kladdlappar"** för att ladda `/demo-customers/test-customer.json`. Kunduppgifter fylls automatiskt och en JSON-förhandsvisning placeras som första bild i rutnätet.
+- Du kan även ladda upp en egen `.json` via samma filväljare; innehållet tolkas och fälten i Kunduppgifter fylls i för sessionen.
+
+## 🧪 Simulerad flödestest (lokal/demo)
+- Kör `npm run simulate:flow` för att verifiera att de lokala kund-hookarna, kundnummergenereringen och flödesstatusarna fungerar även utan Supabase-konfiguration.
+- Skriptet skapar en tillfällig kund i `.data/simulation-hooks.json`, markerar offer/order/faktura-flaggor och försöker länka en order-PDF. Utan Supabase service-nycklar kommer länkningen att rapporteras som "skipped" men resten av flödet ska lyckas.
+- Efter körning tas testkunden och den temporära lagringsfilen bort så att miljön lämnas ren.
 
 ## Notiser
 - `src/app/api/ocr/route.ts` returnerar backendens JSON oförändrat och fallbackar till lokalt backend om env saknas.

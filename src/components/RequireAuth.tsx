@@ -3,7 +3,7 @@
 
 import { ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 
 export default function RequireAuth({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -11,6 +11,10 @@ export default function RequireAuth({ children }: { children: ReactNode }) {
   const [ok, setOk] = useState(false);
 
   useEffect(() => {
+    if (!supabaseConfigured) {
+      setOk(true); // allow navigation locally without Supabase
+      return;
+    }
     supabase.auth.getSession().then(({ data }) => {
       if (!data.session) {
         // Skicka utloggade till login och spara vart de var på väg

@@ -1,0 +1,14 @@
+{
+  "id": "demo-json-1",
+  "name": "Demo Bygg & Co",
+  "orgnr": "556677-8899",
+  "email": "kontakt@demobygg.se",
+  "phone": "+46 70 123 45 67",
+  "address": "Storgatan 1",
+  "zip": "111 22",
+  "city": "Stockholm",
+  "country": "Sverige",
+  "contactPerson": "Anna Demo",
+  "notes": "Importerad från test-JSON hook",
+  "customerNumber": "K-123456"
+}

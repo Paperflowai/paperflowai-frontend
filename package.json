@@ -10,7 +10,8 @@
     "clean:next": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true});\"",
     "clean:test:apply": "node --env-file=.env.local scripts/cleanup-test-customers.mjs --apply",
     "list:customers": "node --env-file=.env.local scripts/list-customers.mjs",
-    "upsert:kund1": "node --env-file=.env.local scripts/upsert-kund1.mjs"
+    "upsert:kund1": "node --env-file=.env.local scripts/upsert-kund1.mjs",
+    "simulate:flow": "tsc -p tsconfig.sim.json && node .sim-dist/scripts/simulate-flow.js"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.3.0",
