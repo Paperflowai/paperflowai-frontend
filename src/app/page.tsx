@@ -5,7 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import TimeSavingsBanner from "@/components/TimeSavingsBanner";
 import { useEffect } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 
 export default function HomePage() {
   // Säkerställ att vi alltid visar huvudsidan först
@@ -19,9 +19,11 @@ export default function HomePage() {
         return;
       }
 
-      supabase.auth.getSession().then(({ data }) => {
-        console.log("🔐 Supabase session status:", data.session ? "Logged in" : "Not logged in");
-      });
+      if (supabaseConfigured) {
+        supabase.auth.getSession().then(({ data }) => {
+          console.log("🔐 Supabase session status:", data.session ? "Logged in" : "Not logged in");
+        });
+      }
     }
   }, []);
 

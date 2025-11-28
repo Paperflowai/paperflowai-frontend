@@ -3,7 +3,7 @@ import OpenAccountingCta from "@/components/OpenAccountingCta";
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from "../../lib/supabaseClient";
+import { supabase, supabaseConfigured } from "../../lib/supabaseClient";
 import { uploadPublicBlob } from "@/lib/storage";
 import DashboardCounter from "@/components/DashboardCounter";
 import LogoutButton from "@/components/LogoutButton";
@@ -403,7 +403,7 @@ async function readAndAutofillFromBlob(
 export default function DashboardPage() {
   // AUTH-GUARD utan router (krockar inte)
 useEffect(() => {
-  if (AUTH_DISABLED) return; // hoppa över inloggning i dev/om flagg satt
+  if (AUTH_DISABLED || !supabaseConfigured) return; // hoppa över inloggning i dev/om flagg satt
   let active = true;
   supabase.auth.getSession().then(({ data }) => {
     if (active && !data.session) {
@@ -643,33 +643,35 @@ const laddaKunder = async () => {
 
   let dbCustomers: Kund[] = [];
 
-  try {
-    const { data, error } = await supabase
-      .from("customers")
-      .select("id, name, orgnr, email, phone, address, zip, city, country");
+  if (supabaseConfigured) {
+    try {
+      const { data, error } = await supabase
+        .from("customers")
+        .select("id, name, orgnr, email, phone, address, zip, city, country");
 
-    if (error) {
-      console.error("Kunde inte hämta customers från Supabase:", error.message);
-    } else {
-      dbCustomers = (data || []).map((row: any) => ({
-        id: String(row.id),
-        companyName: (row.name || "").trim(),
-        orgNr: row.orgnr || "",
-        contactPerson: "",
-        role: "",
-        phone: row.phone || "",
-        email: row.email || "",
-        address: row.address || "",
-        zip: row.zip || "",
-        city: row.city || "",
-        country: row.country || "Sverige",
-        contactDate: "",
-        notes: "",
-        customerNumber: "",
-      }));
+      if (error) {
+        console.error("Kunde inte hämta customers från Supabase:", error.message);
+      } else {
+        dbCustomers = (data || []).map((row: any) => ({
+          id: String(row.id),
+          companyName: (row.name || "").trim(),
+          orgNr: row.orgnr || "",
+          contactPerson: "",
+          role: "",
+          phone: row.phone || "",
+          email: row.email || "",
+          address: row.address || "",
+          zip: row.zip || "",
+          city: row.city || "",
+          country: row.country || "Sverige",
+          contactDate: "",
+          notes: "",
+          customerNumber: "",
+        }));
+      }
+    } catch (e) {
+      console.error("Fel vid laddaKunder:", e);
     }
-  } catch (e) {
-    console.error("Fel vid laddaKunder:", e);
   }
 
   const filteredSupabase = dbCustomers
