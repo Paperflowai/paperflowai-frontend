@@ -1,18 +1,17 @@
 // src/app/login/page.tsx
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import OpenAccountingCta from "@/components/OpenAccountingCta";
 
-function LoginForm() {
+export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   // Skapa konto
   const handleSignup = async (e: React.FormEvent) => {
@@ -37,8 +36,7 @@ function LoginForm() {
     if (error) {
       setError(error.message);
     } else {
-      const next = searchParams?.get("next");
-      router.push(next ?? "/dashboard"); // Gå till ?next=... om satt, annars dashboard
+      router.push("/dashboard");
     }
   };
 
@@ -94,21 +92,5 @@ function LoginForm() {
         </button>
       </form>
     </div>
-  );
-}
-
-export default function LoginPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="flex items-center justify-center min-h-screen bg-gray-100">
-          <div className="bg-white p-6 rounded shadow-md w-80 text-center text-sm text-gray-600">
-            Laddar inloggning…
-          </div>
-        </div>
-      }
-    >
-      <LoginForm />
-    </Suspense>
   );
 }
