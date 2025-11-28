@@ -469,12 +469,13 @@ useEffect(() => {
     if (isClient) setDate(new Date().toISOString().slice(0, 10));
   }, [isClient]);
 
-  useEffect(() => {
+useEffect(() => {
     if (!isClient) return;
+    // 🔄 ENDAST: Läs bara från Supabase (localStorage synkas automatiskt)
     laddaKunder();
-    loadEntries();
-    const onStorage = () => { laddaKunder(); loadEntries(); };
+    const onStorage = () => { loadEntries(); }; // Ta bort laddaKunder() för att undvika localStorage-läsning
     window.addEventListener('storage', onStorage);
+    
     return () => {
       window.removeEventListener('storage', onStorage);
       objectUrlsRef.current.forEach(u => URL.revokeObjectURL(u));
@@ -545,52 +546,7 @@ useEffect(() => {
   }, [displayedEntries]);
 
 const laddaKunder = async () => {
-  // 1) Gamla lokala kunder från localStorage (Test ab m.fl.)
-  const keys = Object.keys(localStorage).filter((k) => /^kund_\d+$/.test(k));
-  const list: Kund[] = [];
-
-  for (const key of keys) {
-    const raw = localStorage.getItem(key);
-    if (!raw) continue;
-    try {
-      const parsed: any = JSON.parse(raw) || {};
-      const rawId = key.split('_')[1]; // t.ex. "123" i "kund_123"
-      const id = parsed.id ? String(parsed.id) : String(rawId);
-
-      if (!id) continue;
-
-      const companyName = (parsed.companyName || '').trim();
-      const hasOffert = !!localStorage.getItem(`kund_offert_${id}`) || !!localStorage.getItem(`sent_offer_${id}`);
-      const hasOrder = !!localStorage.getItem(`kund_order_${id}`) || !!localStorage.getItem(`sent_order_${id}`);
-      const hasInvoice = !!localStorage.getItem(`kund_invoice_${id}`) || !!localStorage.getItem(`sent_invoice_${id}`);
-      const isEmpty = !companyName && !hasOffert && !hasOrder && !hasInvoice;
-
-      if (!isEmpty && !DEMO_CUSTOMERS.has(companyName)) {
-        list.push({
-          id,
-          companyName: companyName || 'Namnlös kund',
-          orgNr: parsed.orgNr || '',
-          contactPerson: parsed.contactPerson || '',
-          role: parsed.role || '',
-          phone: parsed.phone || '',
-          email: parsed.email || '',
-          address: parsed.address || '',
-          zip: parsed.zip || '',
-          city: parsed.city || '',
-          country: parsed.country || 'Sverige',
-          contactDate: parsed.contactDate || '',
-          notes: parsed.notes || '',
-          customerNumber: parsed.customerNumber || '',
-        });
-      }
-    } catch {
-      // Ignorera trasig localStorage-rad
-    }
-  }
-
-  const localUnique = Array.from(new Map(list.map((c) => [c.id, c])).values());
-
-  // 2) Nya kunder från Supabase (tabellen "customers")
+  // 🔄 ENDAST: Läs bara från Supabase (localStorage synkas automatiskt)
   try {
     const { data, error } = await supabase
       .from('customers')
@@ -598,13 +554,14 @@ const laddaKunder = async () => {
 
     if (error) {
       console.error('Kunde inte hämta customers från Supabase:', error.message);
-      setCustomers(localUnique);
+      setCustomers([]);
       return;
     }
 
     const dbCustomers: Kund[] = (data || []).map((row: any) => ({
-      id: String(row.id),
-      companyName: (row.name || '').trim() || 'Namnlös kund',
+  id: String(row.id),
+  companyName: (row.name || '').trim(),
+
       orgNr: row.orgnr || '',
       contactPerson: '',
       role: '',
@@ -619,17 +576,14 @@ const laddaKunder = async () => {
       customerNumber: '',
     }));
 
-   const all = [...localUnique, ...dbCustomers];
-
-// NYTT: filtrera bort demo-kunder även från Supabase-listan
-const allFiltered = all.filter(c => !DEMO_CUSTOMERS.has(c.companyName));
-
-const uniqueAll = Array.from(new Map(allFiltered.map((c) => [c.id, c])).values());
-setCustomers(uniqueAll);
+    // Filtrera bort demo-kunder
+    const filteredCustomers = dbCustomers.filter(c => !DEMO_CUSTOMERS.has(c.companyName));
+    const uniqueAll = Array.from(new Map(filteredCustomers.map((c) => [c.id, c])).values());
+    setCustomers(uniqueAll);
 
   } catch (e) {
     console.error('Fel vid laddaKunder:', e);
-    setCustomers(localUnique);
+    setCustomers([]);
   }
 };
 
@@ -775,18 +729,42 @@ setCustomers(uniqueAll);
   }
 
   const skapaNyKund = () => router.push(`/kund/${Date.now()}`);
-  const taBortKund = (id: string) => {
+  const taBortKund = async (id: string) => {
     if (!confirm('Är du säker på att du vill ta bort kunden?')) return;
-    localStorage.removeItem(`kund_${id}`);
-    localStorage.removeItem(`kund_files_${id}`);
-    localStorage.removeItem(`kund_images_${id}`);
-    localStorage.removeItem(`kund_offert_${id}`);
-    localStorage.removeItem(`kund_order_${id}`);
-    localStorage.removeItem(`kund_invoice_${id}`);
-    localStorage.removeItem(`sent_offer_${id}`);
-    localStorage.removeItem(`sent_order_${id}`);
-    localStorage.removeItem(`sent_invoice_${id}`);
-    setCustomers(prev => prev.filter(k => k.id !== id));
+    
+    try {
+      // 1. Delete from Supabase (primary source of truth)
+      const { error } = await supabase
+        .from('customers')
+        .delete()
+        .eq('id', id);
+      
+      if (error) {
+        console.error('Failed to delete from Supabase:', error);
+        alert('Kunde inte ta bort kund från databasen: ' + error.message);
+        return;
+      }
+      
+      // 2. Delete from localStorage (cleanup of legacy data)
+      localStorage.removeItem(`kund_${id}`);
+      localStorage.removeItem(`kund_files_${id}`);
+      localStorage.removeItem(`kund_images_${id}`);
+      localStorage.removeItem(`kund_offert_${id}`);
+      localStorage.removeItem(`kund_order_${id}`);
+      localStorage.removeItem(`kund_invoice_${id}`);
+      localStorage.removeItem(`sent_offer_${id}`);
+      localStorage.removeItem(`sent_order_${id}`);
+      localStorage.removeItem(`sent_invoice_${id}`);
+      
+      // 3. Update local state
+      setCustomers(prev => prev.filter(k => k.id !== id));
+      
+      console.log('Customer deleted successfully from both Supabase and localStorage');
+      
+    } catch (error) {
+      console.error('Delete error:', error);
+      alert('Ett fel uppstod vid borttagning: ' + error.message);
+    }
   };
 
   const getStatus = (key: string) => {
