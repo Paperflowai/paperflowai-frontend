@@ -2,13 +2,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+
 import OfferTemplate, { OfferRow } from "@/templates/OfferTemplate";
 
 export default function OfferPreviewPage() {
-  const search = useSearchParams();
-  const customerId = search.get("customerId"); // kommer från kundkortet
-
+    const customerId = ""; // TODO: fylls på senare
   const [saving, setSaving] = useState(false);
   const [customerName, setCustomerName] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
