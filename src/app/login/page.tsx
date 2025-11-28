@@ -12,7 +12,6 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  // Skapa konto
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -25,12 +24,14 @@ export default function LoginPage() {
     }
   };
 
-  // Logga in
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
     if (error) {
       setError(error.message);
@@ -52,7 +53,9 @@ export default function LoginPage() {
       </div>
 
       <form className="bg-white p-6 rounded shadow-md space-y-4 w-80">
-        <h1 className="text-xl font-bold text-center">Logga in / Skapa konto</h1>
+        <h1 className="text-xl font-bold text-center">
+          Logga in / Skapa konto
+        </h1>
 
         <input
           type="email"
