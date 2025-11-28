@@ -637,11 +637,56 @@ function loadOfferCustomers(): Kund[] {
   }
 }
 
+function mergeIntoLocalCustomerStore(newCustomers: Kund[]) {
+  if (typeof localStorage === "undefined" || newCustomers.length === 0) return;
+
+  try {
+    const raw = localStorage.getItem(LOCAL_CUSTOMER_STORAGE_KEY);
+    const existing: Kund[] = raw ? JSON.parse(raw) : [];
+    const map = new Map<string, Kund>();
+
+    existing.forEach((c) => {
+      const key = String(c.id || c.customerNumber || c.companyName);
+      map.set(key, c);
+    });
+
+    newCustomers.forEach((incoming) => {
+      const key = String(incoming.id || incoming.customerNumber || incoming.companyName);
+      const prev = map.get(key);
+      const merged: Kund = {
+        ...incoming,
+        companyName: (prev?.companyName || incoming.companyName || "").trim(),
+        orgNr: prev?.orgNr || incoming.orgNr || "",
+        contactPerson: prev?.contactPerson || incoming.contactPerson || "",
+        role: prev?.role || incoming.role || "",
+        phone: prev?.phone || incoming.phone || "",
+        email: prev?.email || incoming.email || "",
+        address: prev?.address || incoming.address || "",
+        zip: prev?.zip || incoming.zip || "",
+        city: prev?.city || incoming.city || "",
+        country: prev?.country || incoming.country || "Sverige",
+        contactDate: prev?.contactDate || incoming.contactDate || "",
+        notes: prev?.notes || incoming.notes || "",
+        customerNumber: prev?.customerNumber || incoming.customerNumber || "",
+      };
+      map.set(key, merged);
+    });
+
+    localStorage.setItem(
+      LOCAL_CUSTOMER_STORAGE_KEY,
+      JSON.stringify(Array.from(map.values()))
+    );
+  } catch (err) {
+    console.warn("Kunde inte skriva kundregister till localStorage", err);
+  }
+}
+
 const laddaKunder = async () => {
   const localCards = loadLocalCustomerCards();
   const offerCustomers = loadOfferCustomers();
 
   let dbCustomers: Kund[] = [];
+  let hookCustomers: Kund[] = [];
 
   if (supabaseConfigured) {
     try {
@@ -672,11 +717,42 @@ const laddaKunder = async () => {
     } catch (e) {
       console.error("Fel vid laddaKunder:", e);
     }
+  } else {
+    try {
+      const res = await fetch("/api/customer-cards/hook");
+      if (res.ok) {
+        const json = await res.json();
+        hookCustomers = (json?.customers || []).map((row: any, idx: number) => ({
+          id: row.id ? String(row.id) : `hook-${idx}`,
+          companyName: (row.name || row.companyName || "").trim(),
+          orgNr: row.orgnr || row.orgNr || "",
+          contactPerson: row.contactPerson || "",
+          role: "",
+          phone: row.phone || "",
+          email: row.email || "",
+          address: row.address || "",
+          zip: row.zip || "",
+          city: row.city || "",
+          country: row.country || "Sverige",
+          contactDate: "",
+          notes: row.notes || "",
+          customerNumber: row.customerNumber || row.customer_number || "",
+        }));
+      }
+    } catch (err) {
+      console.warn("Kunde inte läsa externa kundkort", err);
+    }
   }
 
   const filteredSupabase = dbCustomers
     .filter((c) => !DEMO_CUSTOMERS.has(c.companyName))
     .map((c, idx) => normalizeCustomerId(c, "db", idx));
+
+  const normalizedHookCustomers = hookCustomers.map((c, idx) =>
+    normalizeCustomerId(c, "hook", idx)
+  );
+
+  mergeIntoLocalCustomerStore([...filteredSupabase, ...normalizedHookCustomers]);
 
   const normalizedLocalCards = localCards.map((c, idx) => normalizeCustomerId(c, "local", idx));
   const normalizedOfferCustomers = offerCustomers.map((c, idx) =>
@@ -685,6 +761,7 @@ const laddaKunder = async () => {
 
   const allCustomers = [
     ...filteredSupabase,
+    ...normalizedHookCustomers,
     ...normalizedLocalCards,
     ...normalizedOfferCustomers,
   ];

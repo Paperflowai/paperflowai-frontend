@@ -31,6 +31,29 @@ type CustomerDocument = {
   url?: string | null;
 };
 
+type CustomerFormState = {
+  companyName: string;
+  orgNr: string;
+  contactPerson: string;
+  role: string;
+  phone: string;
+  email: string;
+  address: string;
+  zip: string;
+  city: string;
+  country: string;
+  contactDate: string;
+  notes: string;
+  customerNumber: string;
+  offerText: string;
+  totalSum: string;
+  vatPercent: string;
+  vatAmount: string;
+  validityDays: string;
+};
+
+const CUSTOMER_STORE_KEY = "paperflow_customers_v1";
+
 declare global {
   interface Window {
     pdfjsLib?: any;
@@ -138,6 +161,89 @@ function useFlowStatusSupabase(customerId: string) {
 // Liten väntare för demo innan riktiga API-anrop kopplas på
 const fakeWait = (ms = 500) => new Promise((r) => setTimeout(r, ms));
 
+function mapIncomingCustomer(card: any): CustomerFormState | null {
+  if (!card) return null;
+
+  return {
+    companyName: (card.name || card.companyName || "").trim(),
+    orgNr: card.orgnr || card.orgNr || "",
+    contactPerson: card.contactPerson || card.contact_person || "",
+    role: "",
+    phone: card.phone || "",
+    email: card.email || "",
+    address: card.address || "",
+    zip: card.zip || "",
+    city: card.city || "",
+    country: card.country || "Sverige",
+    contactDate: card.contactDate || "",
+    notes: card.notes || "",
+    customerNumber: card.customerNumber || card.customer_number || "",
+    offerText: "",
+    totalSum: "",
+    vatPercent: "",
+    vatAmount: "",
+    validityDays: "",
+  };
+}
+
+function mergeCustomerSnapshot(
+  prev: CustomerFormState,
+  incoming: CustomerFormState
+): CustomerFormState {
+  const pick = (first?: string, second?: string) =>
+    (first && first.trim().length > 0 ? first : second || "");
+
+  return {
+    ...prev,
+    companyName: pick(prev.companyName, incoming.companyName),
+    orgNr: pick(prev.orgNr, incoming.orgNr),
+    contactPerson: pick(prev.contactPerson, incoming.contactPerson),
+    role: pick(prev.role, incoming.role),
+    phone: pick(prev.phone, incoming.phone),
+    email: pick(prev.email, incoming.email),
+    address: pick(prev.address, incoming.address),
+    zip: pick(prev.zip, incoming.zip),
+    city: pick(prev.city, incoming.city),
+    country: pick(prev.country, incoming.country || "Sverige"),
+    contactDate: pick(prev.contactDate, incoming.contactDate),
+    notes: pick(prev.notes, incoming.notes),
+    customerNumber: pick(prev.customerNumber, incoming.customerNumber),
+    offerText: pick(prev.offerText, incoming.offerText),
+    totalSum: pick(prev.totalSum, incoming.totalSum),
+    vatPercent: pick(prev.vatPercent, incoming.vatPercent),
+    vatAmount: pick(prev.vatAmount, incoming.vatAmount),
+    validityDays: pick(prev.validityDays, incoming.validityDays),
+  };
+}
+
+function persistCustomerSnapshot(customerId: string, snapshot: CustomerFormState) {
+  if (typeof localStorage === "undefined") return;
+
+  try {
+    const raw = localStorage.getItem(CUSTOMER_STORE_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    const idx = list.findIndex(
+      (c: any) => String(c?.id ?? c?.customerNumber) === String(customerId)
+    );
+
+    const next = {
+      ...snapshot,
+      id: customerId,
+    };
+
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...next };
+    } else {
+      list.push(next);
+    }
+
+    localStorage.setItem(CUSTOMER_STORE_KEY, JSON.stringify(list));
+    localStorage.setItem(`kund_${customerId}`, JSON.stringify(next));
+  } catch (err) {
+    console.warn("Kunde inte spara kundkortsläge", err);
+  }
+}
+
 /* =======================
    React Components
    ======================= */
@@ -237,7 +343,7 @@ export default function KundDetaljsida() {
     }
   };
 
-  const [data, setData] = useState({
+  const [data, setData] = useState<CustomerFormState>({
     companyName: "",
     orgNr: "",
     contactPerson: "",
@@ -435,6 +541,68 @@ export default function KundDetaljsida() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+
+    const hasCoreData = Boolean(
+      data.companyName ||
+        data.email ||
+        data.phone ||
+        data.address ||
+        data.zip ||
+        data.city ||
+        data.orgNr
+    );
+
+    let cancelled = false;
+
+    const hydrateFromRemote = async () => {
+      if (hasCoreData) return;
+
+      const fetchCustomer = async (url: string) => {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) return null;
+          const json = await res.json();
+          return json?.customer || json?.card || null;
+        } catch (err) {
+          console.warn("Kunde inte hämta kundkort från", url, err);
+          return null;
+        }
+      };
+
+      const supabaseCard = await fetchCustomer(
+        `/api/customer-cards/get?customerId=${id}`
+      );
+      const hookCard = supabaseCard ||
+        (await fetchCustomer(`/api/customer-cards/hook?id=${id}`));
+      const incoming = mapIncomingCustomer(supabaseCard || hookCard);
+
+      if (!incoming || cancelled) return;
+
+      setData((prev) => {
+        const merged = mergeCustomerSnapshot(prev, incoming);
+        persistCustomerSnapshot(id, merged);
+        return merged;
+      });
+    };
+
+    hydrateFromRemote();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    id,
+    data.companyName,
+    data.email,
+    data.phone,
+    data.address,
+    data.zip,
+    data.city,
+    data.orgNr,
+  ]);
 
   useEffect(() => {
     if (!isMobile || !offert?.url || !offertPagesRef.current) return;
