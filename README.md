@@ -79,6 +79,10 @@ curl -X POST http://127.0.0.1:5000/ocr \
   -F "file=@ocr_server/test.jpg"
 ```
 
+## 🚑 Troubleshooting
+
+- **Build fails with missing Supabase keys**: Ensure `.env.local` includes `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`. The app only initializes Supabase when these values are present, so missing keys are the primary cause of local build failures.
+
 ## Notiser
 - `src/app/api/ocr/route.ts` returnerar backendens JSON oförändrat och fallbackar till lokalt backend om env saknas.
 - `ocr_server/app.py` har CORS och `/health` endpoint för Render.
