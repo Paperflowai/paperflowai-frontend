@@ -380,6 +380,7 @@ export default function KundDetaljsida() {
     order: "",
     invoice: "",
   });
+  const [importingSample, setImportingSample] = useState(false);
 
   // New flow documents
   const [flowDocuments, setFlowDocuments] = useState<{
@@ -568,22 +569,8 @@ export default function KundDetaljsida() {
     const hookCard =
       supabaseCard || (await fetchCustomer(`/api/customer-cards/hook?id=${id}`));
     const incoming = mapIncomingCustomer(supabaseCard || hookCard);
-
-    if (!incoming) return;
-
-    setData((prev) => {
-      const merged = mergeCustomerSnapshot(prev, incoming);
-      const unchanged = Object.keys(prev).every((key) => {
-        const typedKey = key as keyof CustomerFormState;
-        return prev[typedKey] === merged[typedKey];
-      });
-
-      if (unchanged) return prev;
-
-      persistCustomerSnapshot(id, merged);
-      return merged;
-    });
-  }, [id]);
+    applyIncomingCustomer(incoming);
+  }, [applyIncomingCustomer, id]);
 
   useEffect(() => {
     if (!id || !hasBlankFields) return;
@@ -701,6 +688,90 @@ export default function KundDetaljsida() {
     setData(updated);
   }
 
+  const addImagePreview = React.useCallback(
+    (image: { name: string; url: string }, prepend = false) => {
+      setImages((prev) => {
+        const updated = prepend ? [image, ...prev] : [...prev, image];
+        localStorage.setItem(`kund_images_${id}`, JSON.stringify(updated));
+        return updated;
+      });
+    },
+    [id]
+  );
+
+  const applyIncomingCustomer = React.useCallback(
+    (incoming: CustomerFormState | null) => {
+      if (!incoming) return false;
+
+      let changed = false;
+      setData((prev) => {
+        const merged = mergeCustomerSnapshot(prev, incoming);
+        const unchanged = Object.keys(prev).every((key) => {
+          const typedKey = key as keyof CustomerFormState;
+          return prev[typedKey] === merged[typedKey];
+        });
+
+        if (unchanged) return prev;
+
+        persistCustomerSnapshot(id, merged);
+        changed = true;
+        return merged;
+      });
+
+      return changed;
+    },
+    [id]
+  );
+
+  const buildJsonPreview = React.useCallback((title: string, subtitle?: string) => {
+    const top = title || "JSON-kund";
+    const bottom = subtitle ? subtitle : "Importerad";
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="800" height="600">
+        <rect width="800" height="600" fill="#0ea5e9" />
+        <text x="50%" y="45%" dominant-baseline="middle" text-anchor="middle"
+          font-size="48" font-family="Arial" fill="white">${top}</text>
+        <text x="50%" y="60%" dominant-baseline="middle" text-anchor="middle"
+          font-size="28" font-family="Arial" fill="white" opacity="0.85">${bottom}</text>
+      </svg>`;
+
+    return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  }, []);
+
+  const importCustomerJson = React.useCallback(
+    async (sourceLabel: string, payload: any, prependImage = true) => {
+      const record = payload?.customer || payload?.card || payload;
+      const incoming = mapIncomingCustomer(record);
+
+      const previewName =
+        record?.name || record?.companyName || sourceLabel || "json-kund";
+      const previewMeta = record?.customerNumber || record?.orgnr || "";
+      const previewUrl = buildJsonPreview(previewName, previewMeta);
+      addImagePreview({ name: `${sourceLabel}.json`, url: previewUrl }, prependImage);
+
+      return applyIncomingCustomer(incoming);
+    },
+    [addImagePreview, applyIncomingCustomer, buildJsonPreview]
+  );
+
+  const importCustomerJsonFromUrl = React.useCallback(
+    async (url: string) => {
+      setImportingSample(true);
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Kunde inte läsa JSON (${res.status})`);
+        const payload = await res.json();
+        await importCustomerJson("demo-customer", payload);
+      } catch (err: any) {
+        console.warn("Kunde inte importera testkund", err);
+        alert("Kunde inte importera testkund från JSON: " + (err?.message || err));
+      } finally {
+        setImportingSample(false);
+      }
+    },
+    [importCustomerJson]
+  );
+
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) {
@@ -709,23 +780,36 @@ export default function KundDetaljsida() {
     persistData(updated);
   }
 
-  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const uploaded = e.target.files;
     if (!uploaded) return;
 
-    Array.from(uploaded).forEach((file) => {
+    for (const file of Array.from(uploaded)) {
+      const isJson =
+        file.type === "application/json" || file.name.toLowerCase().endsWith(".json");
+
+      if (isJson) {
+        try {
+          const text = await file.text();
+          const parsed = JSON.parse(text);
+          await importCustomerJson(file.name.replace(/\.json$/i, ""), parsed);
+        } catch (err) {
+          console.warn("Kunde inte läsa JSON-kund från fil", err);
+          alert("JSON-filen kunde inte tolkas. Kontrollera formatet och försök igen.");
+        }
+        continue;
+      }
+
       const reader = new FileReader();
       reader.onload = () => {
         const result = reader.result as string;
         const newImage = { name: file.name, url: result };
-        setImages((prev) => {
-          const updated = [...prev, newImage];
-          localStorage.setItem(`kund_images_${id}`, JSON.stringify(updated));
-          return updated;
-        });
+        addImagePreview(newImage);
       };
       reader.readAsDataURL(file);
-    });
+    }
+
+    e.target.value = "";
   }
 
   function deleteImage(index: number) {
@@ -2027,10 +2111,23 @@ export default function KundDetaljsida() {
       </SectionCard>
 
       {/* Bilder och kladdlappar */}
-      <SectionCard title="📷 Bilder och kladdlappar">
+      <SectionCard
+        title="📷 Bilder och kladdlappar"
+        right={
+          <button
+            type="button"
+            onClick={() => importCustomerJsonFromUrl("/demo-customers/test-customer.json")}
+            className="text-sm text-blue-700 hover:underline disabled:opacity-50"
+            disabled={importingSample}
+            title="Ladda en testkund från JSON för att auto-fylla kundkortet"
+          >
+            {importingSample ? "Laddar testkund..." : "Importera testkund (JSON)"}
+          </button>
+        }
+      >
         <input
           type="file"
-          accept="image/*"
+          accept="image/*,application/json"
           multiple
           onChange={handleImageUpload}
           className="mt-2 mb-4 text-blue-700 font-semibold cursor-pointer"
