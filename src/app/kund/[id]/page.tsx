@@ -542,59 +542,73 @@ export default function KundDetaljsida() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  useEffect(() => {
+  const hasBlankFields = React.useMemo(
+    () => Object.values(data).some((value) => !value || value.trim().length === 0),
+    [data]
+  );
+
+  const hydrateFromRemote = React.useCallback(async () => {
     if (!id) return;
 
-    const hasBlankFields = Object.values(data).some(
-      (value) => !value || value.trim().length === 0
-    );
-
-    if (!hasBlankFields) return;
-
-    let cancelled = false;
-
-    const hydrateFromRemote = async () => {
-      const fetchCustomer = async (url: string) => {
-        try {
-          const res = await fetch(url);
-          if (!res.ok) return null;
-          const json = await res.json();
-          return json?.customer || json?.card || null;
-        } catch (err) {
-          console.warn("Kunde inte hämta kundkort från", url, err);
-          return null;
-        }
-      };
-
-      const supabaseCard = await fetchCustomer(
-        `/api/customer-cards/get?customerId=${id}`
-      );
-      const hookCard = supabaseCard ||
-        (await fetchCustomer(`/api/customer-cards/hook?id=${id}`));
-      const incoming = mapIncomingCustomer(supabaseCard || hookCard);
-
-      if (!incoming || cancelled) return;
-
-      setData((prev) => {
-        const merged = mergeCustomerSnapshot(prev, incoming);
-        const unchanged = Object.keys(prev).every((key) => {
-          const typedKey = key as keyof CustomerFormState;
-          return prev[typedKey] === merged[typedKey];
-        });
-
-        if (unchanged) return prev;
-
-        persistCustomerSnapshot(id, merged);
-        return merged;
-      });
+    const fetchCustomer = async (url: string) => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const json = await res.json();
+        return json?.customer || json?.card || null;
+      } catch (err) {
+        console.warn("Kunde inte hämta kundkort från", url, err);
+        return null;
+      }
     };
 
-    hydrateFromRemote();
+    const supabaseCard = await fetchCustomer(
+      `/api/customer-cards/get?customerId=${id}`
+    );
+    const hookCard =
+      supabaseCard || (await fetchCustomer(`/api/customer-cards/hook?id=${id}`));
+    const incoming = mapIncomingCustomer(supabaseCard || hookCard);
+
+    if (!incoming) return;
+
+    setData((prev) => {
+      const merged = mergeCustomerSnapshot(prev, incoming);
+      const unchanged = Object.keys(prev).every((key) => {
+        const typedKey = key as keyof CustomerFormState;
+        return prev[typedKey] === merged[typedKey];
+      });
+
+      if (unchanged) return prev;
+
+      persistCustomerSnapshot(id, merged);
+      return merged;
+    });
+  }, [id]);
+
+  useEffect(() => {
+    if (!id || !hasBlankFields) return;
+
+    let cancelled = false;
+    let inflight = false;
+
+    const runHydrate = async () => {
+      if (cancelled || inflight) return;
+      inflight = true;
+      try {
+        await hydrateFromRemote();
+      } finally {
+        inflight = false;
+      }
+    };
+
+    runHydrate();
+    const timer = setInterval(runHydrate, 5000);
 
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
-  }, [id, data]);
+  }, [id, hasBlankFields, hydrateFromRemote]);
 
   useEffect(() => {
     if (!isMobile || !offert?.url || !offertPagesRef.current) return;
