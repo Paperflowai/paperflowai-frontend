@@ -451,7 +451,7 @@ export default function KundDetaljsida() {
           vatAmount: "",
           validityDays: "",
         };
-        localStorage.setItem(`kund_${id}`, JSON.stringify(initialData));
+        persistCustomerSnapshot(id, initialData);
         setData(initialData);
       }
     }
@@ -691,43 +691,7 @@ export default function KundDetaljsida() {
   }
 
   function persistData(updated: typeof data) {
-    const existingCustomers = JSON.parse(
-      localStorage.getItem("paperflow_customers_v1") || "[]"
-    );
-    const customerIndex = existingCustomers.findIndex(
-      (c: any) => String(c.id) === String(id)
-    );
-
-    if (customerIndex !== -1) {
-      existingCustomers[customerIndex] = {
-        ...existingCustomers[customerIndex],
-        companyName: updated.companyName,
-        orgNr: updated.orgNr,
-        contactPerson: updated.contactPerson,
-        role: updated.role,
-        phone: updated.phone,
-        email: updated.email,
-        address: updated.address,
-        zip: updated.zip,
-        city: updated.city,
-        country: updated.country,
-        contactDate: updated.contactDate,
-        notes: updated.notes,
-        customerNumber: updated.customerNumber,
-        offerText: updated.offerText,
-        totalSum: updated.totalSum,
-        vatPercent: updated.vatPercent,
-        vatAmount: updated.vatAmount,
-        validityDays: updated.validityDays,
-      };
-      localStorage.setItem(
-        "paperflow_customers_v1",
-        JSON.stringify(existingCustomers)
-      );
-    } else {
-      localStorage.setItem(`kund_${id}`, JSON.stringify(updated));
-    }
-
+    persistCustomerSnapshot(id, updated);
     setData(updated);
   }
 

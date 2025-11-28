@@ -75,6 +75,14 @@ export function findExternalCustomer(id: string): ExternalCustomerRecord | undef
   return safeRead().find((c) => String(c.id) === String(id));
 }
 
+export function deleteExternalCustomer(id: string): boolean {
+  const records = safeRead();
+  const filtered = records.filter((c) => String(c.id) !== String(id));
+  if (filtered.length === records.length) return false;
+  safeWrite(filtered);
+  return true;
+}
+
 export function upsertExternalCustomer(
   payload: ExternalCustomerPayload
 ): ExternalCustomerRecord {

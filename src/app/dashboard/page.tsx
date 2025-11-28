@@ -681,6 +681,19 @@ function mergeIntoLocalCustomerStore(newCustomers: Kund[]) {
   }
 }
 
+function removeFromLocalCustomerStore(id: string) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const raw = localStorage.getItem(LOCAL_CUSTOMER_STORAGE_KEY);
+    if (!raw) return;
+    const existing: Kund[] = JSON.parse(raw);
+    const filtered = existing.filter((c) => String(c.id) !== String(id));
+    localStorage.setItem(LOCAL_CUSTOMER_STORAGE_KEY, JSON.stringify(filtered));
+  } catch (err) {
+    console.warn("Kunde inte ta bort kund från localStorage", err);
+  }
+}
+
 const laddaKunder = async () => {
   const localCards = loadLocalCustomerCards();
   const offerCustomers = loadOfferCustomers();
@@ -912,10 +925,10 @@ const laddaKunder = async () => {
   }
 
   const skapaNyKund = () => router.push(`/kund/${Date.now()}`);
-  const taBortKund = (id: string) => {
+  const taBortKund = async (id: string) => {
     if (!confirm('Är du säker på att du vill ta bort kunden?')) return;
-    
-    // Revert to sync version temporarily to test
+
+    removeFromLocalCustomerStore(id);
     localStorage.removeItem(`kund_${id}`);
     localStorage.removeItem(`kund_files_${id}`);
     localStorage.removeItem(`kund_images_${id}`);
@@ -925,9 +938,17 @@ const laddaKunder = async () => {
     localStorage.removeItem(`sent_offer_${id}`);
     localStorage.removeItem(`sent_order_${id}`);
     localStorage.removeItem(`sent_invoice_${id}`);
+    localStorage.removeItem(`kund_bookkeeping_${id}`);
+
+    try {
+      await fetch(`/api/customer-cards/hook?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+    } catch (err) {
+      console.warn("Kunde inte ta bort kund via API", err);
+    }
+
     setCustomers(prev => prev.filter(k => k.id !== id));
-    
-    console.log('Customer deleted (localStorage only - test mode)');
   };
 
   const getStatus = (key: string) => {

@@ -4,6 +4,7 @@ import {
   listExternalCustomers,
   upsertExternalCustomer,
   findExternalCustomer,
+  deleteExternalCustomer,
 } from "@/lib/customerHookStore";
 import { supabaseAdmin, supabaseAdminConfigured } from "@/lib/supabaseServer";
 
@@ -159,4 +160,32 @@ export async function POST(req: Request) {
     console.error("[customer hook] POST failed", error);
     return NextResponse.json({ ok: false, error: error?.message || "Unknown" }, { status: 500 });
   }
+}
+
+export async function DELETE(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get("id");
+
+  if (!id) {
+    return NextResponse.json({ ok: false, error: "Missing id" }, { status: 400 });
+  }
+
+  if (supabaseAdminConfigured) {
+    try {
+      const { error } = await supabaseAdmin.from("customers").delete().eq("id", id);
+      if (error) {
+        return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      }
+      return NextResponse.json({ ok: true, source: "supabase" });
+    } catch (e: any) {
+      console.error("[customer hook] Supabase DELETE failed", e);
+      return NextResponse.json({ ok: false, error: e?.message || "Unknown" }, { status: 500 });
+    }
+  }
+
+  const removed = deleteExternalCustomer(id);
+  if (!removed) {
+    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
+  return NextResponse.json({ ok: true, source: "file" });
 }
