@@ -1,4 +1,4 @@
-import { supabaseAdmin, supabaseAdminConfigured } from "@/lib/supabaseServer";
+import { supabaseAdmin, supabaseAdminConfigured } from "./supabaseServer";
 
 export type LinkPayload = {
   table: "orders" | "invoices";

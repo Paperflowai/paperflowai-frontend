@@ -88,6 +88,11 @@ curl -X POST http://127.0.0.1:5000/ocr \
 - Klicka på knappen **"Importera testkund (JSON)"** i sektionen **"Bilder och kladdlappar"** för att ladda `/demo-customers/test-customer.json`. Kunduppgifter fylls automatiskt och en JSON-förhandsvisning placeras som första bild i rutnätet.
 - Du kan även ladda upp en egen `.json` via samma filväljare; innehållet tolkas och fälten i Kunduppgifter fylls i för sessionen.
 
+## 🧪 Simulerad flödestest (lokal/demo)
+- Kör `npm run simulate:flow` för att verifiera att de lokala kund-hookarna, kundnummergenereringen och flödesstatusarna fungerar även utan Supabase-konfiguration.
+- Skriptet skapar en tillfällig kund i `.data/simulation-hooks.json`, markerar offer/order/faktura-flaggor och försöker länka en order-PDF. Utan Supabase service-nycklar kommer länkningen att rapporteras som "skipped" men resten av flödet ska lyckas.
+- Efter körning tas testkunden och den temporära lagringsfilen bort så att miljön lämnas ren.
+
 ## Notiser
 - `src/app/api/ocr/route.ts` returnerar backendens JSON oförändrat och fallbackar till lokalt backend om env saknas.
 - `ocr_server/app.py` har CORS och `/health` endpoint för Render.

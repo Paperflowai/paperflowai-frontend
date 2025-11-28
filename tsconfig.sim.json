@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "outDir": ".sim-dist",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "allowJs": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  "include": [
+    "scripts/simulate-flow.ts",
+    "src/lib/customerHookStore.ts",
+    "src/lib/customerNumbers.ts",
+    "src/lib/flowStatusServer.ts",
+    "src/lib/documentLinks.ts",
+    "src/lib/flowStatus.ts",
+    "src/lib/supabaseServer.ts"
+  ]
+}

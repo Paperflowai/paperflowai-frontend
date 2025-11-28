@@ -1,5 +1,5 @@
-import { defaultFlow, type FlowStatus } from "@/lib/flowStatus";
-import { supabaseAdmin, supabaseAdminConfigured } from "@/lib/supabaseServer";
+import { defaultFlow, type FlowStatus } from "./flowStatus";
+import { supabaseAdmin, supabaseAdminConfigured } from "./supabaseServer";
 
 type Row = {
   customer_id: string;
@@ -31,8 +31,8 @@ export async function loadFlowStatusServer(
 ): Promise<FlowStatus> {
   if (!supabaseAdminConfigured) return defaultFlow;
 
-  const { data, error } = await supabaseAdmin
-    .from<Row>(TABLE)
+  const { data, error } = await (supabaseAdmin as any)
+    .from(TABLE)
     .select("*")
     .eq("customer_id", customerId)
     .maybeSingle();
@@ -50,7 +50,7 @@ export async function upsertFlowStatusServer(
 
   if (!supabaseAdminConfigured) return next;
 
-  const { error } = await supabaseAdmin.from(TABLE).upsert(
+  const { error } = await (supabaseAdmin as any).from(TABLE).upsert(
     {
       customer_id: customerId,
       offer_sent: next.offerSent,

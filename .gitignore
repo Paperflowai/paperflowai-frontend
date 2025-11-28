@@ -35,6 +35,7 @@ pip-wheel-metadata/
 
 # Local data stores for development hooks
 .data/
+.sim-dist/
 
 # OCR server (specifikt dina mappar)
 ocr_server/.venv/

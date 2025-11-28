@@ -1,4 +1,4 @@
-import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
+import { supabase, supabaseConfigured } from "./supabaseClient";
 
 export type FlowStatus = {
   offerSent: boolean;
@@ -65,8 +65,8 @@ const toStatus = (r: Row | null): FlowStatus =>
 export async function loadFlowStatus(customerId: string): Promise<FlowStatus> {
   if (!supabaseConfigured) return readLocalFlowStatus(customerId);
 
-  const { data, error } = await supabase
-    .from<Row>(TABLE)
+  const { data, error } = await (supabase as any)
+    .from(TABLE)
     .select("*")
     .eq("customer_id", customerId)
     .maybeSingle();
@@ -83,7 +83,7 @@ export async function upsertFlowStatus(customerId: string, patch: Partial<FlowSt
     return next;
   }
 
-  const { error } = await supabase.from(TABLE).upsert({
+  const { error } = await (supabase as any).from(TABLE).upsert({
     customer_id: customerId,
     offer_sent: next.offerSent,
     order_created: next.orderCreated,
