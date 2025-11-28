@@ -15,7 +15,7 @@ import {
   loadFlowStatus,
   upsertFlowStatus,
 } from "@/lib/flowStatus";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { BUCKET_DOCS, OFFER_BUCKET } from "@/lib/storage";
 import {
   collectCustomerNumbersFromLocalStorage,
@@ -285,6 +285,13 @@ export default function KundDetaljsida() {
 
   // Handle creating order from offer
   const handleCreateOrder = async () => {
+    if (!supabaseConfigured) {
+      alert(
+        "Supabase är inte konfigurerat. Lägg till dina miljövariabler för att skapa order."
+      );
+      return;
+    }
+
     setOrderLoading(true);
     try {
       const res = await fetch("/api/orders/create-from-offer", {
@@ -299,6 +306,25 @@ export default function KundDetaljsida() {
       });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
+      if (json?.path) {
+        latestOrderPathRef.current = json.path;
+      }
+      if (json?.path) {
+        setFlowDocuments((prev) => ({
+          ...prev,
+          orders: [
+            {
+              id: json.path,
+              storage_path: json.path,
+              type: "order",
+              filename: json.path.split("/").pop() || "order.pdf",
+              file_url: json.fileUrl ?? null,
+              created_at: new Date().toISOString(),
+            },
+            ...(prev.orders || []),
+          ],
+        }));
+      }
       // Fallback: hämta order-PDF som Blob via path/bucket och visa som blob:URL
       if (json?.ok && json?.path && json?.bucket) {
         const { data: file, error } = await supabase.storage
@@ -348,6 +374,112 @@ export default function KundDetaljsida() {
     }
   };
 
+  const handleCreateInvoice = async () => {
+    if (!supabaseConfigured) {
+      alert(
+        "Supabase är inte konfigurerat. Lägg till dina miljövariabler för att skapa faktura."
+      );
+      return;
+    }
+
+    const orderPath = latestOrderPathRef.current;
+    if (!orderPath) {
+      alert("Ingen order-PDF hittad. Skapa order först.");
+      return;
+    }
+
+    setInvoiceLoading(true);
+    try {
+      const res = await fetch("/api/invoices/create-from-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          customerId,
+          orderPath,
+          bucket: BUCKET_DOCS,
+        }),
+      });
+
+      if (!res.ok) throw new Error(await res.text());
+
+      const json = await res.json();
+      if (json?.path) {
+        latestInvoicePathRef.current = json.path;
+        setFlowDocuments((prev) => ({
+          ...prev,
+          invoices: [
+            {
+              id: json.path,
+              storage_path: json.path,
+              type: "invoice",
+              filename: json.path.split("/").pop() || "invoice.pdf",
+              file_url: json.fileUrl ?? null,
+              created_at: new Date().toISOString(),
+            },
+            ...(prev.invoices || []),
+          ],
+        }));
+      }
+
+      if (json?.ok && json?.path && json?.bucket) {
+        const { data: file, error } = await supabase.storage
+          .from(json.bucket)
+          .download(json.path);
+
+        if (error || !file) {
+          console.error("[invoice] download failed", error?.message);
+        } else {
+          const pdfBlob =
+            file.type === "application/pdf"
+              ? file
+              : new Blob([file], { type: "application/pdf" });
+
+          const url = URL.createObjectURL(pdfBlob);
+          setInvoice({ name: json.path.split("/").pop() || "invoice.pdf", url });
+        }
+      }
+
+      await save({ invoiceCreated: true });
+    } catch (e: any) {
+      console.error(e);
+      alert(`Kunde inte skapa faktura: ${e.message || e}`);
+    } finally {
+      setInvoiceLoading(false);
+    }
+  };
+
+  const handleSendOffer = async () => {
+    setOfferSending(true);
+    try {
+      const { path } = await ensureOfferPath();
+      const res = await fetch("/api/offers/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          customerId,
+          offerPath: path,
+          bucket: BUCKET_DOCS,
+        }),
+      });
+
+      if (!res.ok) throw new Error(await res.text());
+
+      const json = await res.json();
+      setSentStatus((prev) => ({
+        ...prev,
+        offert: json?.sentAt || new Date().toISOString(),
+      }));
+      await save({ offerSent: true });
+    } catch (e: any) {
+      console.error(e);
+      alert(`Kunde inte markera offerten som skickad: ${e.message || e}`);
+    } finally {
+      setOfferSending(false);
+    }
+  };
+
   const [data, setData] = useState<CustomerFormState>({
     companyName: "",
     orgNr: "",
@@ -376,6 +508,8 @@ export default function KundDetaljsida() {
   const [invoice, setInvoice] = useState<DocFile | null>(null);
   const [orderPdfUrl, setOrderPdfUrl] = useState<string | null>(null);
   const [orderLoading, setOrderLoading] = useState(false);
+  const [offerSending, setOfferSending] = useState(false);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
   const [offerPath, setOfferPath] = useState<string | null>(null);
   const [documents, setDocuments] = useState<CustomerDocument[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
@@ -401,6 +535,11 @@ export default function KundDetaljsida() {
   const objectUrlsRef = useRef<string[]>([]);
   const offertCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const offertPagesRef = useRef<HTMLDivElement | null>(null);
+  const latestOrderPathRef = useRef<string | null>(null);
+  const latestInvoicePathRef = useRef<string | null>(null);
+  const autoOrderRequestedRef = useRef(false);
+  const autoInvoiceRequestedRef = useRef(false);
+  const [autoFlowEnabled, setAutoFlowEnabled] = useState(false);
 
   useEffect(() => {
     const takenNumbers = collectCustomerNumbersFromLocalStorage();
@@ -657,6 +796,51 @@ export default function KundDetaljsida() {
     }
   }, [id]);
 
+  useEffect(() => {
+    const latestOrder = flowDocuments.orders?.[0];
+    const latestInvoice = flowDocuments.invoices?.[0];
+
+    if (latestOrder) {
+      latestOrderPathRef.current =
+        (latestOrder as any).storage_path || (latestOrder as any).path || null;
+    }
+
+    if (latestInvoice) {
+      latestInvoicePathRef.current =
+        (latestInvoice as any).storage_path || (latestInvoice as any).path || null;
+    }
+  }, [flowDocuments]);
+
+  useEffect(() => {
+    if (!autoFlowEnabled) return;
+    if (orderLoading || invoiceLoading) return;
+
+    if (!status.orderCreated && offerPath && !autoOrderRequestedRef.current) {
+      autoOrderRequestedRef.current = true;
+      handleCreateOrder();
+      return;
+    }
+
+    if (
+      status.orderCreated &&
+      !status.invoiceCreated &&
+      latestOrderPathRef.current &&
+      !autoInvoiceRequestedRef.current
+    ) {
+      autoInvoiceRequestedRef.current = true;
+      handleCreateInvoice();
+    }
+  }, [
+    autoFlowEnabled,
+    status.orderCreated,
+    status.invoiceCreated,
+    offerPath,
+    orderLoading,
+    invoiceLoading,
+    handleCreateOrder,
+    handleCreateInvoice,
+  ]);
+
   // Fallback vid mount (om offerten redan fanns)
   useEffect(() => {
     (async () => {
@@ -768,9 +952,20 @@ export default function KundDetaljsida() {
       const previewUrl = buildJsonPreview(previewName, previewMeta);
       addImagePreview({ name: `${sourceLabel}.json`, url: previewUrl }, prependImage);
 
-      return applyIncomingCustomer(incoming);
+      const changed = applyIncomingCustomer(incoming);
+      if (changed) {
+        setAutoFlowEnabled(true);
+        autoOrderRequestedRef.current = false;
+        autoInvoiceRequestedRef.current = false;
+      }
+      return changed;
     },
-    [addImagePreview, applyIncomingCustomer, buildJsonPreview]
+    [
+      addImagePreview,
+      applyIncomingCustomer,
+      buildJsonPreview,
+      setAutoFlowEnabled,
+    ]
   );
 
   const importCustomerJsonFromUrl = React.useCallback(
@@ -1902,12 +2097,11 @@ export default function KundDetaljsida() {
                   <button
                     type="button"
                     className="btn btn-primary flex items-center gap-1"
-                    onClick={async () => {
-                      alert("❌ Den här funktionen är borttagen.\n\nOffert skickas via GPT → PDF → plattformen.\nInga e-postutskick görs här längre.");
-                    }}
+                    onClick={handleSendOffer}
+                    disabled={offerSending}
                     title="Skicka offert"
                   >
-                    <Send size={16} /> Skicka
+                    <Send size={16} /> {offerSending ? "Skickar..." : "Skicka"}
                   </button>
 
 
@@ -2035,13 +2229,13 @@ export default function KundDetaljsida() {
               <button
                 type="button"
                 className="btn btn-outline"
-                onClick={async () => {
-                  await fakeWait();
-                  await save({ invoiceCreated: true });
-                }}
+                onClick={handleCreateInvoice}
+                disabled={
+                  invoiceLoading || (!status.orderCreated && !latestOrderPathRef.current)
+                }
                 title="Skapa faktura"
               >
-                Skapa faktura
+                {invoiceLoading ? "Skapar faktura..." : "Skapa faktura"}
               </button>
 
               <button
@@ -2052,7 +2246,7 @@ export default function KundDetaljsida() {
                   await fakeWait();
                   await save({ invoiceSent: true, invoicePosted: true });
                 }}
-                disabled={!status.invoiceCreated}
+                disabled={invoiceLoading || !status.invoiceCreated}
                 title="Skicka faktura"
               >
                 Skicka
