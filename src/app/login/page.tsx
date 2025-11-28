@@ -82,4 +82,16 @@ export default function LoginPage() {
           onClick={handleLogin}
           className="w-full bg-indigo-500 text-white py-2 rounded hover:bg-indigo-600"
         >
-          L
+          Logga in
+        </button>
+
+        <button
+          onClick={handleSignup}
+          className="w-full bg-green-500 text-white py-2 rounded hover:bg-green-600"
+        >
+          Skapa konto
+        </button>
+      </form>
+    </div>
+  );
+}
