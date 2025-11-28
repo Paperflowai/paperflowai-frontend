@@ -5,7 +5,6 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import OpenAccountingCta from "@/components/OpenAccountingCta";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -50,11 +49,6 @@ export default function LoginPage() {
         >
           ← Tillbaka
         </Link>
-      </div>
-
-      {/* Till bokföringen – visas bara om inloggad */}
-      <div className="absolute top-4 right-4">
-        <OpenAccountingCta />
       </div>
 
       <form className="bg-white p-6 rounded shadow-md space-y-4 w-80">
