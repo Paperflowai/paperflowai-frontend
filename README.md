@@ -28,6 +28,12 @@ Enterprise-grade SaaS platform for small business automation with AI-powered doc
 git clone <repository>
 cd offertplattform
 npm install
+# Copy environment and fill in Supabase keys before running any commands that hit the API
+cp env.example .env.local
+# Required values:
+#   NEXT_PUBLIC_SUPABASE_URL
+#   NEXT_PUBLIC_SUPABASE_ANON_KEY
+#   SUPABASE_SERVICE_ROLE_KEY
 npm run dev  # → http://localhost:3000
 
 # 2. OCR Service (new terminal)
