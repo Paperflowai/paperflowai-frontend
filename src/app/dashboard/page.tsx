@@ -729,42 +729,22 @@ const laddaKunder = async () => {
   }
 
   const skapaNyKund = () => router.push(`/kund/${Date.now()}`);
-  const taBortKund = async (id: string) => {
+  const taBortKund = (id: string) => {
     if (!confirm('Är du säker på att du vill ta bort kunden?')) return;
     
-    try {
-      // 1. Delete from Supabase (primary source of truth)
-      const { error } = await supabase
-        .from('customers')
-        .delete()
-        .eq('id', id);
-      
-      if (error) {
-        console.error('Failed to delete from Supabase:', error);
-        alert('Kunde inte ta bort kund från databasen: ' + error.message);
-        return;
-      }
-      
-      // 2. Delete from localStorage (cleanup of legacy data)
-      localStorage.removeItem(`kund_${id}`);
-      localStorage.removeItem(`kund_files_${id}`);
-      localStorage.removeItem(`kund_images_${id}`);
-      localStorage.removeItem(`kund_offert_${id}`);
-      localStorage.removeItem(`kund_order_${id}`);
-      localStorage.removeItem(`kund_invoice_${id}`);
-      localStorage.removeItem(`sent_offer_${id}`);
-      localStorage.removeItem(`sent_order_${id}`);
-      localStorage.removeItem(`sent_invoice_${id}`);
-      
-      // 3. Update local state
-      setCustomers(prev => prev.filter(k => k.id !== id));
-      
-      console.log('Customer deleted successfully from both Supabase and localStorage');
-      
-    } catch (error) {
-      console.error('Delete error:', error);
-      alert('Ett fel uppstod vid borttagning: ' + error.message);
-    }
+    // Revert to sync version temporarily to test
+    localStorage.removeItem(`kund_${id}`);
+    localStorage.removeItem(`kund_files_${id}`);
+    localStorage.removeItem(`kund_images_${id}`);
+    localStorage.removeItem(`kund_offert_${id}`);
+    localStorage.removeItem(`kund_order_${id}`);
+    localStorage.removeItem(`kund_invoice_${id}`);
+    localStorage.removeItem(`sent_offer_${id}`);
+    localStorage.removeItem(`sent_order_${id}`);
+    localStorage.removeItem(`sent_invoice_${id}`);
+    setCustomers(prev => prev.filter(k => k.id !== id));
+    
+    console.log('Customer deleted (localStorage only - test mode)');
   };
 
   const getStatus = (key: string) => {
@@ -776,7 +756,7 @@ const laddaKunder = async () => {
     ) : (<span className="text-red-600 text-lg">❌</span>);
   };
 
-  const filtreradeKunder = customers.filter(k =>
+  const filtreradeKunder = (customers || []).filter(k =>
     (k.companyName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (k.customerNumber || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -880,7 +860,18 @@ const laddaKunder = async () => {
                       <Link href={`/kund/${kund.id}`} className="text-blue-600 hover:underline">Redigera</Link>
                     </td>
                     <td className="border px-4 py-3 text-center">
-                      <button onClick={() => taBortKund(kund.id)} className="text-red-600 hover:underline">🗑️</button>
+                      <button 
+                        onClick={(e) => {
+                          e.preventDefault();
+                          taBortKund(kund.id).catch(err => {
+                            console.error('Delete error:', err);
+                            alert('Kunde inte ta bort kund: ' + err.message);
+                          });
+                        }} 
+                        className="text-red-600 hover:underline"
+                      >
+                        🗑️
+                      </button>
                     </td>
                   </tr>
                 ))
