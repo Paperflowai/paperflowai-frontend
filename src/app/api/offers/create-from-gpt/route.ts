@@ -122,7 +122,7 @@ export async function POST(req: Request) {
       return bad("Insert failed: " + docErr.message, 500);
     }
 
-    // 7) Spara själva offern i offers-tabellen (enkel variant)
+    // 7) Spara själva offerten i offers-tabellen, inklusive file_url
     const { data: offerRow, error: offerErr } = await supabaseAdmin
       .from("offers")
       .insert({
@@ -130,6 +130,11 @@ export async function POST(req: Request) {
         status: "created",
         data: safeJson,
         created_at: new Date().toISOString(),
+        currency: safeJson.valuta || "SEK",
+        amount: safeJson.summa || null,
+        file_url: pub.publicUrl,
+        needs_print: false,
+        payload: { textData },
       })
       .select("id")
       .single();
