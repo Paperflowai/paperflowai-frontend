@@ -2,127 +2,124 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
-import OfferTemplate, { OfferRow } from "@/templates/OfferTemplate";
+type Offer = {
+  id: string | number;
+  customer_id?: string | number;
+  status?: string;
+  file_url?: string | null;
+  created_at?: string;
+};
 
 export default function OfferPreviewPage() {
-    const customerId = ""; // TODO: fylls på senare
-  const [saving, setSaving] = useState(false);
-  const [customerName, setCustomerName] = useState("");
-  const [customerAddress, setCustomerAddress] = useState("");
+  const searchParams = useSearchParams();
+  const customerId = searchParams.get("customerId") || "";
 
-  // 🔹 hämta kundinfo från localStorage om vi fick ett customerId
+  const [latestOffer, setLatestOffer] = useState<Offer | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+
   useEffect(() => {
-    if (!customerId) return;
-
-    // 1) nya strukturen (paperflow_customers_v1)
-    const all = JSON.parse(localStorage.getItem("paperflow_customers_v1") || "[]");
-    const found = all.find((c: any) => String(c.id) === String(customerId));
-    if (found) {
-      const name = found.companyName || found.contactPerson || "";
-      const addrParts = [found.address, found.zip, found.city].filter(Boolean).join("\n");
-      setCustomerName(name);
-      setCustomerAddress(addrParts);
+    if (!customerId) {
+      setErr("Ingen kund vald. Öppna förhandsgranskningen via kundkortet.");
+      setLoading(false);
       return;
     }
 
-    // 2) gamla strukturen: kund_{id}
-    const old = localStorage.getItem(`kund_${customerId}`);
-    if (old) {
-      const parsed = JSON.parse(old);
-      const name = parsed.companyName || parsed.contactPerson || "";
-      const addrParts = [parsed.address, parsed.zip, parsed.city].filter(Boolean).join("\n");
-      setCustomerName(name);
-      setCustomerAddress(addrParts);
-    }
+    (async () => {
+      setLoading(true);
+      setErr("");
+      try {
+        const res = await fetch(
+          `/api/offers/list?customerId=${encodeURIComponent(customerId)}`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+
+        const arr: Offer[] = Array.isArray(json)
+          ? json
+          : Array.isArray(json?.data)
+          ? json.data
+          : Array.isArray(json?.items)
+          ? json.items
+          : [];
+
+        arr.sort(
+          (a, b) =>
+            new Date(b.created_at || 0).getTime() -
+            new Date(a.created_at || 0).getTime()
+        );
+
+        const first = arr[0] || null;
+        setLatestOffer(first || null);
+        if (!first || !first.file_url) {
+          setErr(
+            "Ingen PDF-offert hittades för den här kunden. Skapa en offert via GPT först."
+          );
+        }
+      } catch (e) {
+        console.error(e);
+        setErr("Kunde inte hämta offert.");
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [customerId]);
 
-  const rows: OfferRow[] = [
-    { text: "Rivning av gammal list och förberedelse av vägg", qty: 6, unit: "tim", price: 650, vat: 25 },
-    { text: "Nya golvlister (furu vit), inkl. kapning och montering", qty: 22, unit: "m", price: 49, vat: 25 },
-    { text: "Resa inom Stockholm (fast pris)", qty: 1, unit: "st", price: 350, vat: 25 },
-  ];
+  if (loading) {
+    return (
+      <main className="min-h-dvh bg-gray-100 p-6">
+        <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm">
+          <p className="text-sm text-gray-600">Laddar förhandsgranskning…</p>
+        </div>
+      </main>
+    );
+  }
 
-  const offerPayload = {
-    companyName: "Ditt Företag AB",
-    companyOrgNr: "556123-4567",
-    companyAddress: "Exempelgatan 1\n123 45 Stockholm",
-    companyEmail: "info@dittforetag.se",
-    companyPhone: "070-123 45 67",
-    // ⬇️ nu fyller vi med kundens namn/adress
-    customerName: customerName,
-    customerAddress: customerAddress,
-    offerNumber: "O-2025-001",
-    offerDate: "2025-11-04",
-    validUntil: "2025-12-04",
-    projectName: "Listbyte vardagsrum",
-    rows,
-    notes:
-      "Eventuellt extraarbete debiteras löpande enligt timpris.\nPriser exkl. moms om inget annat anges.",
-    terms: [
-      "Betalningsvillkor 15 dagar.",
-      "Material debiteras enligt faktisk åtgång.",
-      "Offerten är giltig t.o.m. angivet datum.",
-    ],
-    customerId,
-    status: "draft",
-  };
+  if (err) {
+    return (
+      <main className="min-h-dvh bg-gray-100 p-6">
+        <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm">
+          <p className="text-sm text-red-600">{err}</p>
+        </div>
+      </main>
+    );
+  }
 
-  async function handleSave() {
-    if (!customerId) {
-      alert("Öppna offertmallen via kundkortet (knappen 'Skapa offert') så customerId följer med.");
-      return;
-    }
-    try {
-      setSaving(true);
-      const res = await fetch("/api/offers/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(offerPayload),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.ok) throw new Error(json.error || "Sparning misslyckades");
-      alert(`✅ Sparad! ID: ${json.id}`);
-    } catch (e: any) {
-      alert(`❌ Fel: ${e?.message || "Okänt fel"}`);
-    } finally {
-      setSaving(false);
-    }
+  if (!latestOffer || !latestOffer.file_url) {
+    return (
+      <main className="min-h-dvh bg-gray-100 p-6">
+        <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm">
+          <p className="text-sm text-gray-600">
+            Ingen PDF-offert hittades för den här kunden.
+          </p>
+        </div>
+      </main>
+    );
   }
 
   return (
     <main className="min-h-dvh bg-gray-100 p-6">
-      <div className="max-w-[794px] mx-auto bg-white p-8 shadow-sm border-2 border-blue-700 rounded-lg">
-        <OfferTemplate
-          companyName={offerPayload.companyName}
-          companyOrgNr={offerPayload.companyOrgNr}
-          companyAddress={offerPayload.companyAddress}
-          companyEmail={offerPayload.companyEmail}
-          companyPhone={offerPayload.companyPhone}
-          customerName={offerPayload.customerName}
-          customerAddress={offerPayload.customerAddress}
-          offerNumber={offerPayload.offerNumber}
-          offerDate={offerPayload.offerDate}
-          validUntil={offerPayload.validUntil}
-          projectName={offerPayload.projectName}
-          rows={offerPayload.rows}
-          notes={offerPayload.notes}
-          terms={offerPayload.terms}
-        />
-
-        <div className="mt-6 flex items-center justify-between">
-          <p className="text-sm text-gray-600">
-            {customerId
-              ? `Kopplas till kund-ID: ${customerId}`
-              : "Ingen kund vald – öppna mallen via kundkortet."}
-          </p>
-          <button
-            onClick={handleSave}
-            disabled={saving || !customerId}
-            className={`px-5 py-2 rounded-lg text-white ${saving || !customerId ? "bg-gray-400" : "bg-blue-600 hover:bg-blue-700"}`}
+      <div className="max-w-5xl mx-auto bg-white p-4 rounded-xl shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-lg font-semibold">Förhandsgranska offert</h1>
+          <a
+            href={latestOffer.file_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm rounded-lg bg-black text-white px-3 py-2"
           >
-            {saving ? "Sparar…" : "Spara som offert"}
-          </button>
+            Öppna som PDF i ny flik
+          </a>
+        </div>
+        <div className="border rounded-lg overflow-hidden h-[80vh]">
+          <iframe
+            src={latestOffer.file_url}
+            className="w-full h-full"
+            title="Offert PDF"
+          />
         </div>
       </div>
     </main>
