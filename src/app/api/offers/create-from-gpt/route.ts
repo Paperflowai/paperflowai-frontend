@@ -15,6 +15,33 @@ function bad(msg: string, code = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status: code });
 }
 
+// Försök plocka ut kundnamn ur offerttexten om jsonData inte innehåller namn
+function extractCustomerNameFromText(text: string): string | null {
+  if (!text) return null;
+
+  // Försök hitta rad efter "Till:"
+  const tillIndex = text.indexOf("Till:");
+  if (tillIndex !== -1) {
+    const afterTill = text.slice(tillIndex + "Till:".length);
+    const lines = afterTill.split("\n").map(l => l.trim()).filter(Boolean);
+    if (lines.length > 0) {
+      // t.ex. "Testkunden GPT AB"
+      return lines[0];
+    }
+  }
+
+  // Annars: leta efter en rad som slutar på AB / HB / KB / Aktiebolag
+  const lines = text.split("\n").map(l => l.trim());
+  for (const line of lines) {
+    if (!line) continue;
+    if (/(AB|HB|KB|Aktiebolag)\b/.test(line)) {
+      return line;
+    }
+  }
+
+  return null;
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as GPTOfferBody;
@@ -25,7 +52,16 @@ export async function POST(req: Request) {
     }
 
     const safeJson = jsonData || {};
-    const kund = safeJson.kund || {};
+    const kund = safeJson.kund || safeJson.customer || {};
+
+    // Försök hitta kundnamn i jsonData eller texten
+    const extractedNameFromText = extractCustomerNameFromText(textData || "");
+    const kundNamn =
+      kund.namn ||
+      kund.name ||
+      safeJson.kundnamn ||
+      extractedNameFromText ||
+      "Ny kund";
 
     // 1) Sätt kund-ID
     if (!customerId) {
@@ -37,14 +73,14 @@ export async function POST(req: Request) {
     await supabaseAdmin.from("customers").upsert(
       {
         id: customerId,
-        name: kund.namn || safeJson.kundnamn || "Ny kund",
-        orgnr: kund.orgnr || null,
+        name: kundNamn,
+        orgnr: kund.orgnr || kund.orgnr || null,
         email: kund.epost || kund.email || null,
-        phone: kund.telefon || null,
-        address: kund.adress || null,
-        zip: kund.postnummer || null,
-        city: kund.ort || null,
-        country: kund.land || "Sverige",
+        phone: kund.telefon || kund.phone || null,
+        address: kund.adress || kund.address || null,
+        zip: kund.postnummer || kund.zip || null,
+        city: kund.ort || kund.city || null,
+        country: kund.land || kund.country || "Sverige",
       },
       { onConflict: "id" }
     );
@@ -53,11 +89,11 @@ export async function POST(req: Request) {
     await supabaseAdmin.from("customer_cards").upsert(
       {
         customer_id: customerId,
-        name: kund.namn || safeJson.kundnamn || "Ny kund",
+        name: kundNamn,
         orgnr: kund.orgnr || null,
         email: kund.epost || kund.email || null,
-        phone: kund.telefon || null,
-        address: kund.adress || null,
+        phone: kund.telefon || kund.phone || null,
+        address: kund.adress || kund.address || null,
       },
       { onConflict: "customer_id" }
     );
