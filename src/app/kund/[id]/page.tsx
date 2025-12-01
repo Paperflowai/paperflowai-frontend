@@ -733,9 +733,12 @@ export default function KundDetaljsida() {
       }
     };
 
-    const supabaseCard = await fetchCustomer(
-      `/api/customer-cards/get?customerId=${id}`
-    );
+    // Only hit the Supabase-backed route when credentials are configured to
+    // avoid merge-style conflicts with branches that require env vars. The
+    // hook endpoint still works in demo/local mode.
+    const supabaseCard = supabaseConfigured
+      ? await fetchCustomer(`/api/customer-cards/get?customerId=${id}`)
+      : null;
     const hookCard =
       supabaseCard || (await fetchCustomer(`/api/customer-cards/hook?id=${id}`));
     const incoming = mapIncomingCustomer(supabaseCard || hookCard);
