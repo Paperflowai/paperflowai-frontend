@@ -13,24 +13,30 @@ type Offer = {
   created_at?: string;
 };
 
-// 🔹 YTTRE komponent – bara Suspense-wrapper
 export default function OfferPreviewPage() {
   return (
-    <Suspense
-      fallback={
-        <main className="min-h-dvh bg-gray-100 p-6">
-          <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm">
-            <p className="text-sm text-gray-600">Laddar förhandsgranskning…</p>
-          </div>
-        </main>
-      }
-    >
+    <Suspense fallback={<OfferPreviewFallback text="Laddar förhandsgranskning…" />}>
       <OfferPreviewInner />
     </Suspense>
   );
 }
 
-// 🔹 Din gamla logik, flyttad till en inner-komponent
+function OfferPreviewFallback({
+  text,
+  textClass = "text-sm text-gray-600",
+}: {
+  text: string;
+  textClass?: string;
+}) {
+  return (
+    <main className="min-h-dvh bg-gray-100 p-6">
+      <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm">
+        <p className={textClass}>{text}</p>
+      </div>
+    </main>
+  );
+}
+
 function OfferPreviewInner() {
   const searchParams = useSearchParams();
   const customerId = searchParams.get("customerId") || "";
@@ -88,34 +94,21 @@ function OfferPreviewInner() {
   }, [customerId]);
 
   if (loading) {
-    return (
-      <main className="min-h-dvh bg-gray-100 p-6">
-        <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm">
-          <p className="text-sm text-gray-600">Laddar förhandsgranskning…</p>
-        </div>
-      </main>
-    );
+    return <OfferPreviewFallback text="Laddar förhandsgranskning…" />;
   }
 
   if (err) {
     return (
-      <main className="min-h-dvh bg-gray-100 p-6">
-        <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm">
-          <p className="text-sm text-red-600">{err}</p>
-        </div>
-      </main>
+      <OfferPreviewFallback
+        text={err}
+        textClass="text-sm text-red-600"
+      />
     );
   }
 
   if (!latestOffer || !latestOffer.file_url) {
     return (
-      <main className="min-h-dvh bg-gray-100 p-6">
-        <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm">
-          <p className="text-sm text-gray-600">
-            Ingen PDF-offert hittades för den här kunden.
-          </p>
-        </div>
-      </main>
+      <OfferPreviewFallback text="Ingen PDF-offert hittades för den här kunden." />
     );
   }
 
