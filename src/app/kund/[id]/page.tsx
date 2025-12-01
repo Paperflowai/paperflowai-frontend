@@ -59,12 +59,8 @@ type CustomerFormState = {
 
 const CUSTOMER_STORE_KEY = "paperflow_customers_v1";
 
-// Some branches enforce Supabase presence strictly; allow that behaviour to be
-// toggled via env so we can avoid merge-style conflicts while keeping demo
-// fallbacks working locally.
-const supabaseRequired =
-  (process.env.NEXT_PUBLIC_REQUIRE_SUPABASE || "").toLowerCase() === "true";
-const supabaseRequiredButMissing = supabaseRequired && !supabaseConfigured;
+// Supabase is optional; when credentials are missing we keep everything local
+// so the page remains fully functional without remote services.
 const supabaseEnabled = supabaseConfigured;
 
 declare global {
@@ -302,17 +298,34 @@ export default function KundDetaljsida() {
 
   // Handle creating order from offer
   const handleCreateOrder = async () => {
-    if (!supabaseConfigured) {
-      alert(
-        supabaseRequired
-          ? "Supabase är obligatoriskt för att skapa order – konfigurera dina nycklar först."
-          : "Supabase är inte konfigurerat. Lägg till dina miljövariabler för att skapa order."
-      );
-      return;
-    }
-
     setOrderLoading(true);
     try {
+      if (!supabaseConfigured) {
+        const local = await createLocalPdf("order");
+        latestOrderPathRef.current = local.path;
+        setOrder({ name: local.filename, url: local.url });
+        setFlowDocuments((prev) => ({
+          ...prev,
+          orders: [
+            {
+              id: local.path,
+              storage_path: local.path,
+              type: "order",
+              filename: local.filename,
+              file_url: local.url,
+              created_at: new Date().toISOString(),
+            },
+            ...(prev.orders || []),
+          ],
+        }));
+        setOrderPdfUrl((old) => {
+          if (old) URL.revokeObjectURL(old);
+          return local.url;
+        });
+        await save({ orderCreated: true });
+        return;
+      }
+
       const res = await fetch("/api/orders/create-from-offer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -394,23 +407,36 @@ export default function KundDetaljsida() {
   };
 
   const handleCreateInvoice = async () => {
-    if (!supabaseConfigured) {
-      alert(
-        supabaseRequired
-          ? "Supabase är obligatoriskt för att skapa faktura – konfigurera dina nycklar först."
-          : "Supabase är inte konfigurerat. Lägg till dina miljövariabler för att skapa faktura."
-      );
-      return;
-    }
-
     const orderPath = latestOrderPathRef.current;
-    if (!orderPath) {
+    if (!orderPath && supabaseConfigured) {
       alert("Ingen order-PDF hittad. Skapa order först.");
       return;
     }
 
     setInvoiceLoading(true);
     try {
+      if (!supabaseConfigured) {
+        const local = await createLocalPdf("invoice");
+        latestInvoicePathRef.current = local.path;
+        setInvoice({ name: local.filename, url: local.url });
+        setFlowDocuments((prev) => ({
+          ...prev,
+          invoices: [
+            {
+              id: local.path,
+              storage_path: local.path,
+              type: "invoice",
+              filename: local.filename,
+              file_url: local.url,
+              created_at: new Date().toISOString(),
+            },
+            ...(prev.invoices || []),
+          ],
+        }));
+        await save({ invoiceCreated: true });
+        return;
+      }
+
       const res = await fetch("/api/invoices/create-from-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -473,6 +499,13 @@ export default function KundDetaljsida() {
   const handleSendOffer = async () => {
     setOfferSending(true);
     try {
+      if (!supabaseConfigured) {
+        const sentAt = new Date().toISOString();
+        setSentStatus((prev) => ({ ...prev, offert: sentAt }));
+        await save({ offerSent: true });
+        return;
+      }
+
       const { path } = await ensureOfferPath();
       const res = await fetch("/api/offers/send", {
         method: "POST",
@@ -561,6 +594,23 @@ export default function KundDetaljsida() {
   const autoOrderRequestedRef = useRef(false);
   const autoInvoiceRequestedRef = useRef(false);
   const [autoFlowEnabled, setAutoFlowEnabled] = useState(false);
+
+  const createLocalPdf = async (type: "order" | "invoice") => {
+    const ts = Date.now();
+    const filename = `${type}-${ts}.pdf`;
+    const path = `local/${customerId}/${filename}`;
+    const blob = new Blob(
+      [
+        `Demo-${type} för kund ${customerId} (${new Date().toISOString()}).`,
+        "\nGenererad lokalt utan Supabase.",
+      ],
+      { type: "application/pdf" }
+    );
+    await idbSet(path, blob);
+    const url = URL.createObjectURL(blob);
+    objectUrlsRef.current.push(url);
+    return { path, url, filename };
+  };
 
   useEffect(() => {
     const takenNumbers = collectCustomerNumbersFromLocalStorage();
@@ -731,7 +781,7 @@ export default function KundDetaljsida() {
   );
 
   const hydrateFromRemote = React.useCallback(async () => {
-    if (!id || supabaseRequiredButMissing) return;
+    if (!id) return;
 
     const fetchCustomer = async (url: string) => {
       try {
@@ -745,17 +795,11 @@ export default function KundDetaljsida() {
       }
     };
 
-    // Only hit the Supabase-backed route when credentials are configured to
-    // avoid merge-style conflicts with branches that require env vars. The
-    // hook endpoint still works in demo/local mode.
     const supabaseCard = supabaseEnabled
       ? await fetchCustomer(`/api/customer-cards/get?customerId=${id}`)
       : null;
     const hookCard =
-      supabaseCard ||
-      (!supabaseRequired
-        ? await fetchCustomer(`/api/customer-cards/hook?id=${id}`)
-        : null);
+      supabaseCard || (await fetchCustomer(`/api/customer-cards/hook?id=${id}`));
     const incoming = mapIncomingCustomer(supabaseCard || hookCard);
     applyIncomingCustomer(incoming);
   }, [applyIncomingCustomer, id]);
