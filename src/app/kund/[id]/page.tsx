@@ -59,6 +59,14 @@ type CustomerFormState = {
 
 const CUSTOMER_STORE_KEY = "paperflow_customers_v1";
 
+// Some branches enforce Supabase presence strictly; allow that behaviour to be
+// toggled via env so we can avoid merge-style conflicts while keeping demo
+// fallbacks working locally.
+const supabaseRequired =
+  (process.env.NEXT_PUBLIC_REQUIRE_SUPABASE || "").toLowerCase() === "true";
+const supabaseRequiredButMissing = supabaseRequired && !supabaseConfigured;
+const supabaseEnabled = supabaseConfigured;
+
 declare global {
   interface Window {
     pdfjsLib?: any;
@@ -296,7 +304,9 @@ export default function KundDetaljsida() {
   const handleCreateOrder = async () => {
     if (!supabaseConfigured) {
       alert(
-        "Supabase är inte konfigurerat. Lägg till dina miljövariabler för att skapa order."
+        supabaseRequired
+          ? "Supabase är obligatoriskt för att skapa order – konfigurera dina nycklar först."
+          : "Supabase är inte konfigurerat. Lägg till dina miljövariabler för att skapa order."
       );
       return;
     }
@@ -386,7 +396,9 @@ export default function KundDetaljsida() {
   const handleCreateInvoice = async () => {
     if (!supabaseConfigured) {
       alert(
-        "Supabase är inte konfigurerat. Lägg till dina miljövariabler för att skapa faktura."
+        supabaseRequired
+          ? "Supabase är obligatoriskt för att skapa faktura – konfigurera dina nycklar först."
+          : "Supabase är inte konfigurerat. Lägg till dina miljövariabler för att skapa faktura."
       );
       return;
     }
@@ -719,7 +731,7 @@ export default function KundDetaljsida() {
   );
 
   const hydrateFromRemote = React.useCallback(async () => {
-    if (!id) return;
+    if (!id || supabaseRequiredButMissing) return;
 
     const fetchCustomer = async (url: string) => {
       try {
@@ -736,11 +748,14 @@ export default function KundDetaljsida() {
     // Only hit the Supabase-backed route when credentials are configured to
     // avoid merge-style conflicts with branches that require env vars. The
     // hook endpoint still works in demo/local mode.
-    const supabaseCard = supabaseConfigured
+    const supabaseCard = supabaseEnabled
       ? await fetchCustomer(`/api/customer-cards/get?customerId=${id}`)
       : null;
     const hookCard =
-      supabaseCard || (await fetchCustomer(`/api/customer-cards/hook?id=${id}`));
+      supabaseCard ||
+      (!supabaseRequired
+        ? await fetchCustomer(`/api/customer-cards/hook?id=${id}`)
+        : null);
     const incoming = mapIncomingCustomer(supabaseCard || hookCard);
     applyIncomingCustomer(incoming);
   }, [applyIncomingCustomer, id]);
