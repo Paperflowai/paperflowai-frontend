@@ -166,8 +166,10 @@ export default function KundDetaljsida() {
   const params = useParams();
   const router = useRouter();
 
-  const customerId = String((params as { id?: string })?.id ?? "");
-  const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
+const customerId = String((params as { id?: string })?.id ?? "");
+const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
+
+
 
   // Flow status hook
   const { status, save } = useFlowStatusSupabase(customerId);
@@ -1323,7 +1325,7 @@ export default function KundDetaljsida() {
                   {data.customerNumber}
                 </span>
               </div>
-            </div>
+            </div>d
           </div>
         </div>
       </header>

@@ -1,6 +1,7 @@
 // src/app/preview/offer/page.tsx
 "use client";
 
+import { Suspense } from "react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -12,7 +13,25 @@ type Offer = {
   created_at?: string;
 };
 
+// 🔹 YTTRE komponent – bara Suspense-wrapper
 export default function OfferPreviewPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-dvh bg-gray-100 p-6">
+          <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-sm">
+            <p className="text-sm text-gray-600">Laddar förhandsgranskning…</p>
+          </div>
+        </main>
+      }
+    >
+      <OfferPreviewInner />
+    </Suspense>
+  );
+}
+
+// 🔹 Din gamla logik, flyttad till en inner-komponent
+function OfferPreviewInner() {
   const searchParams = useSearchParams();
   const customerId = searchParams.get("customerId") || "";
 
