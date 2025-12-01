@@ -1,8 +1,7 @@
 // src/app/preview/offer/page.tsx
 "use client";
 
-import { Suspense } from "react";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 type Offer = {
@@ -12,14 +11,6 @@ type Offer = {
   file_url?: string | null;
   created_at?: string;
 };
-
-export default function OfferPreviewPage() {
-  return (
-    <Suspense fallback={<OfferPreviewFallback text="Laddar förhandsgranskning…" />}>
-      <OfferPreviewInner />
-    </Suspense>
-  );
-}
 
 function OfferPreviewFallback({
   text,
@@ -135,5 +126,15 @@ function OfferPreviewInner() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function OfferPreviewPage() {
+  return (
+    <Suspense
+      fallback={<OfferPreviewFallback text="Laddar förhandsgranskning…" />}
+    >
+      <OfferPreviewInner />
+    </Suspense>
   );
 }
