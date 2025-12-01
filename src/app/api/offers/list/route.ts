@@ -8,7 +8,7 @@ export async function GET(req: Request) {
 
     let query = supabaseAdmin
       .from("offers")
-      .select("id, created_at, status, customer_id, data")
+      .select("id, created_at, status, customer_id, data, file_url")
       .order("created_at", { ascending: false });
 
     const { data, error } = customerId
