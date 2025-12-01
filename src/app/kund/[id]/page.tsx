@@ -277,7 +277,16 @@ export default function KundDetaljsida() {
   const params = useParams();
   const router = useRouter();
 
-  const customerId = String((params as { id?: string })?.id ?? "");
+  // Harmonized parsing of the dynamic route param to avoid merge conflicts
+  // between numeric/string interpretations of the customer id. We keep the
+  // string version for lookups and also expose the numeric variant for any
+  // legacy stores that may have saved numeric keys.
+  const rawParamId = (params as { id?: string })?.id;
+  const customerId = rawParamId ? String(rawParamId) : "";
+  const numericCustomerId = Number(customerId);
+  const legacyNumericId = Number.isFinite(numericCustomerId)
+    ? numericCustomerId
+    : null;
   const id = customerId;
 
   // Flow status hook
@@ -547,9 +556,10 @@ export default function KundDetaljsida() {
     const existingCustomers = JSON.parse(
       localStorage.getItem("paperflow_customers_v1") || "[]"
     );
-    const customer = existingCustomers.find(
-      (c: any) => String(c.id) === String(id)
-    );
+    const customer = existingCustomers.find((c: any) => {
+      if (String(c.id) === String(customerId)) return true;
+      return legacyNumericId !== null && Number(c.id) === legacyNumericId;
+    });
 
     if (customer) {
       const ensuredNumber =
