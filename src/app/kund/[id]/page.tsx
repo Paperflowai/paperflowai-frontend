@@ -59,8 +59,15 @@ type CustomerFormState = {
 
 const CUSTOMER_STORE_KEY = "paperflow_customers_v1";
 
-// Supabase is optional; when credentials are missing we keep everything local
-// so the page remains fully functional without remote services.
+// Supabase is optional by default; when NEXT_PUBLIC_REQUIRE_SUPABASE=true the
+// UI will surface a warning if credentials are missing so conflicts between
+// "Supabase-required" and "demo/local" modes are resolved in a single file.
+const supabaseRequired =
+  process.env.NEXT_PUBLIC_REQUIRE_SUPABASE?.trim().toLowerCase() === "true";
+
+// We still only execute Supabase calls when credentials exist; the flag above
+// only controls whether we warn and skip remote lookups instead of crashing or
+// trying to force Supabase usage without configuration.
 const supabaseEnabled = supabaseConfigured;
 
 declare global {
@@ -1864,6 +1871,19 @@ export default function KundDetaljsida() {
       </header>
 
      
+      {supabaseRequired && !supabaseConfigured && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="font-semibold">Supabase krävs men saknar nycklar.</div>
+          <p className="mt-1">
+            Sätt <code>NEXT_PUBLIC_SUPABASE_URL</code> och {" "}
+            <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code> (samt servernycklarna för
+            API:erna) om du vill använda molnflödet. Utan nycklar körs den här
+            sidan i lokalt demoläge och lagrar PDF:er samt kunddata i din
+            webbläsare.
+          </p>
+        </div>
+      )}
+
       {/* Till bokföringen-knapp */}
       <div className="mb-4 flex gap-2 justify-between flex-wrap">
         <Link
