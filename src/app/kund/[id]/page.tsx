@@ -644,6 +644,8 @@ export default function KundDetaljsida() {
       }
 
       // 2) Fallback: hämta senaste från Supabase documents
+      if (!supabaseConfigured) return;
+
       try {
         const { data: docs, error } = await supabase
           .from("documents")
@@ -844,7 +846,7 @@ export default function KundDetaljsida() {
   // Fallback vid mount (om offerten redan fanns)
   useEffect(() => {
     (async () => {
-      if (offerPath || !customerId) return;
+      if (offerPath || !customerId || !supabaseConfigured) return;
       const { data: doc } = await supabase
         .from("documents")
         .select("storage_path")
@@ -864,6 +866,12 @@ export default function KundDetaljsida() {
 
     const path = offerPath ?? pathAttr;
     if (path) return { bucket: BUCKET_DOCS, path };
+
+    if (!supabaseConfigured) {
+      throw new Error(
+        "Ingen offert hittad. Supabase är inte konfigurerat – ladda upp offerten igen eller sätt dina Supabase-nycklar."
+      );
+    }
 
     const { data: doc } = await supabase
       .from("documents")
@@ -1403,77 +1411,96 @@ export default function KundDetaljsida() {
       const meta = { name: uploaded.name };
       localStorage.setItem(`kund_${type}_${id}`, JSON.stringify(meta));
 
-      // 4) Upload to Supabase Storage for offerts
+      // 4) Offer preview + optional Supabase upload
       if (type === "offert") {
-        const timestamp = Date.now();
-        const fileName = `offers/${customerId}/${timestamp}-${uploaded.name}`;
+        const offerFile = { name: uploaded.name, url };
+        setOffert(offerFile);
 
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from(BUCKET_DOCS)
-          .upload(fileName, uploaded, { upsert: true });
+        if (supabaseConfigured) {
+          const timestamp = Date.now();
+          const fileName = `offers/${customerId}/${timestamp}-${uploaded.name}`;
 
-        if (uploadError) {
-          console.error("Supabase upload error:", uploadError);
-        } else {
-          // Save storage path and create preview URL
-          setOfferPath(uploadData.path);
-
-          // Update the offer state with blob URL
-          const { data: pdfBlob, error } = await supabase.storage
+          const { data: uploadData, error: uploadError } = await supabase.storage
             .from(BUCKET_DOCS)
-            .download(uploadData.path);
-          if (!error && pdfBlob) {
-            const url = URL.createObjectURL(pdfBlob);
-            const newFile = { name: uploaded.name, url };
-            setOffert(newFile);
-          }
+            .upload(fileName, uploaded, { upsert: true });
 
-          // Save document record in database
-          const { error: docError } = await supabase.from("documents").insert({
-            customer_id: customerId,
-            type: "offer",
-            storage_path: uploadData.path,
-            filename: uploaded.name,
-            created_at: new Date().toISOString(),
-          });
-
-          if (docError) {
-            console.error("Documents table insert error:", docError);
+          if (uploadError) {
+            console.error("Supabase upload error:", uploadError);
           } else {
-            console.log("Offer saved to Supabase:", uploadData.path);
-          }
+            // Save storage path and create preview URL
+            setOfferPath(uploadData.path);
 
-          // 6) Autofyll vid offert (server-parse, fallback local)
-          try {
-            const resp = await fetch("/api/offers/parse", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({
-                bucket: OFFER_BUCKET,
-                path: uploadData.path,
-              }),
-            });
+            // Update the offer state with blob URL
+            const { data: pdfBlob, error } = await supabase.storage
+              .from(BUCKET_DOCS)
+              .download(uploadData.path);
+            if (!error && pdfBlob) {
+              const url = URL.createObjectURL(pdfBlob);
+              const newFile = { name: uploaded.name, url };
+              setOffert(newFile);
+            }
 
-            if (resp.ok) {
-              const json = await resp.json();
-              const updated = { ...data, ...json.parsed.customer };
-              setData(updated);
-              persistData(updated);
+            // Save document record in database
+            const { error: docError } = await supabase
+              .from("documents")
+              .insert({
+                customer_id: customerId,
+                type: "offer",
+                storage_path: uploadData.path,
+                filename: uploaded.name,
+                created_at: new Date().toISOString(),
+              });
 
-              const { error: updateError } = await supabase
-                .from("customers")
-                .update(json.parsed.customer)
-                .eq("id", customerId);
-
-              if (updateError) {
-                console.error("Customer update error:", updateError);
-              } else {
-                console.log("Autofyllda fält från server:", json.parsed.customer);
-              }
+            if (docError) {
+              console.error("Documents table insert error:", docError);
             } else {
-              const errorText = await resp.text();
-              console.warn("Parse API failed:", errorText);
+              console.log("Offer saved to Supabase:", uploadData.path);
+            }
+
+            // 6) Autofyll vid offert (server-parse, fallback local)
+            try {
+              const resp = await fetch("/api/offers/parse", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                  bucket: OFFER_BUCKET,
+                  path: uploadData.path,
+                }),
+              });
+
+              if (resp.ok) {
+                const json = await resp.json();
+                const updated = { ...data, ...json.parsed.customer };
+                setData(updated);
+                persistData(updated);
+
+                const { error: updateError } = await supabase
+                  .from("customers")
+                  .update(json.parsed.customer)
+                  .eq("id", customerId);
+
+                if (updateError) {
+                  console.error("Customer update error:", updateError);
+                } else {
+                  console.log(
+                    "Autofyllda fält från server:",
+                    json.parsed.customer
+                  );
+                }
+              } else {
+                const errorText = await resp.text();
+                console.warn("Parse API failed:", errorText);
+                const text = await extractTextFromPDF(uploaded);
+                if (text && text.trim().length > 0) {
+                  const mapped = parseFieldsFromText(text, uploaded.name);
+                  const updated = { ...data, ...mapped };
+                  persistData(updated);
+                  console.log("Autofyllda fält (fallback):", mapped);
+                }
+              }
+            } catch (parseError) {
+              console.error("Parse error:", parseError);
               const text = await extractTextFromPDF(uploaded);
               if (text && text.trim().length > 0) {
                 const mapped = parseFieldsFromText(text, uploaded.name);
@@ -1482,15 +1509,15 @@ export default function KundDetaljsida() {
                 console.log("Autofyllda fält (fallback):", mapped);
               }
             }
-          } catch (parseError) {
-            console.error("Parse error:", parseError);
-            const text = await extractTextFromPDF(uploaded);
-            if (text && text.trim().length > 0) {
-              const mapped = parseFieldsFromText(text, uploaded.name);
-              const updated = { ...data, ...mapped };
-              persistData(updated);
-              console.log("Autofyllda fält (fallback):", mapped);
-            }
+          }
+        } else {
+          // Demo/local mode: fall back to local PDF text extraction only
+          const text = await extractTextFromPDF(uploaded);
+          if (text && text.trim().length > 0) {
+            const mapped = parseFieldsFromText(text, uploaded.name);
+            const updated = { ...data, ...mapped };
+            persistData(updated);
+            console.log("Autofyllda fält (demo):", mapped);
           }
         }
       }
@@ -1501,7 +1528,7 @@ export default function KundDetaljsida() {
         if (type === "order") setOrder(newFile);
         if (type === "invoice") setInvoice(newFile);
 
-        if (type === "invoice") {
+        if (type === "invoice" && supabaseConfigured) {
           try {
             const fileName = `${Date.now()}-faktura.pdf`;
             const storagePath = `invoices/${id}/${fileName}`;
