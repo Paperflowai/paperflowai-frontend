@@ -428,7 +428,31 @@ useEffect(() => {
 
   const [customers, setCustomers] = useState<Kund[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  async function deleteCustomer(customerId: string) {
+  if (!confirm("Vill du verkligen radera kunden och alla tillhörande offerter?")) {
+    return;
+  }
 
+  try {
+    const res = await fetch(`/api/customers/${customerId}`, {
+      method: "DELETE",
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert("Kunde inte radera kund: " + (body.error || res.status));
+      return;
+    }
+
+    // Ta bort kunden i listan i dashboarden
+    setCustomers((prev: any[]) =>
+      prev.filter((c) => String(c.id) !== String(customerId))
+    );
+  } catch (err) {
+    console.error(err);
+    alert("Tekniskt fel vid radering.");
+  }
+}
   const [entries, setEntries] = useState<BookkeepEntry[]>([]);
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const objectUrlsRef = useRef<string[]>([]);
@@ -859,20 +883,36 @@ const laddaKunder = async () => {
                     <td className="border px-4 py-3 text-center">
                       <Link href={`/kund/${kund.id}`} className="text-blue-600 hover:underline">Redigera</Link>
                     </td>
-                    <td className="border px-4 py-3 text-center">
-                      <button 
-                        onClick={(e) => {
-                          e.preventDefault();
-                          taBortKund(kund.id).catch(err => {
-                            console.error('Delete error:', err);
-                            alert('Kunde inte ta bort kund: ' + err.message);
-                          });
-                        }} 
-                        className="text-red-600 hover:underline"
-                      >
-                        🗑️
-                      </button>
-                    </td>
+ <td className="border px-4 py-3 text-center">
+  <button
+    onClick={(e) => {
+      e.preventDefault();
+
+      const namn =
+        kund.companyName ||
+        kund.contactPerson ||
+        "den här kunden";
+
+      if (
+        !window.confirm(
+          `Är du säker på att du vill ta bort "${namn}"?\nDetta går inte att ångra.`
+        )
+      ) {
+        return;
+      }
+
+      deleteCustomer(String(kund.id)).catch((err) => {
+        console.error("Delete error:", err);
+        alert("Kunde inte ta bort kund: " + err.message);
+      });
+    }}
+    className="text-red-600 hover:text-red-800"
+    title="Ta bort kund"
+  >
+    🗑️
+  </button>
+</td>
+
                   </tr>
                 ))
               ) : (
