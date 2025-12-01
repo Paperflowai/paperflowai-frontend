@@ -1,12 +1,17 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+const rawAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+
+// Use explicit defaults so `createClient` never receives an undefined URL, which
+// would throw in browsers when Supabase isn’t configured (e.g. local demo mode).
+const FALLBACK_URL = "https://disabled.supabase.local";
+const FALLBACK_ANON = "public-anon-key";
 
 // Let the app run locally without Supabase by falling back to a harmless mock client
 // that always responds with an error. Vercel/production will provide real env vars
 // so the real client is used there.
-export const supabaseConfigured = Boolean(url && anon);
+export const supabaseConfigured = Boolean(rawUrl && rawAnon);
 
 const mockFetch: typeof fetch = async () =>
   new Response(
@@ -15,8 +20,8 @@ const mockFetch: typeof fetch = async () =>
   );
 
 export const supabase: SupabaseClient = createClient(
-  url || "https://disabled.supabase.local",
-  anon || "public-anon-key",
+  rawUrl || FALLBACK_URL,
+  rawAnon || FALLBACK_ANON,
   supabaseConfigured ? undefined : { global: { fetch: mockFetch } }
 );
 
