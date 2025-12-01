@@ -1,18 +1,21 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Tillåt båda varianterna av env-namn
 const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL!;
+  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
 const SERVICE_ROLE =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE!;
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
 
-const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
-  auth: { persistSession: false },
-});
+const admin: SupabaseClient | null =
+  SUPABASE_URL && SERVICE_ROLE
+    ? createClient(SUPABASE_URL, SERVICE_ROLE, {
+        auth: { persistSession: false },
+      })
+    : null;
 
 // Viktigt i Next 15: 2:a argumentet typas som "any"
 export async function DELETE(req: Request, context: any) {
@@ -22,6 +25,13 @@ export async function DELETE(req: Request, context: any) {
 
   if (!docId) {
     return NextResponse.json({ error: "missing docId" }, { status: 400 });
+  }
+
+  if (!admin) {
+    return NextResponse.json(
+      { error: "Supabase is not configured" },
+      { status: 503 }
+    );
   }
 
   try {

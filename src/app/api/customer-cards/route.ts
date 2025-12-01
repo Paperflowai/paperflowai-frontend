@@ -1,35 +1,53 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
-// Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  {
-    db: {
-      schema: {
-        tables: {
-          customers: {
-            columns: {
-              id: "uuid",
-              name: "text",
-              orgnr: "text",
-              email: "text",
-              phone: "text",
-              address: "text",
-              zip: "text",
-              city: "text",
-              country: "text",
-              created_at: "timestamp",
-              updated_at: "timestamp"
-            }
-          }
-        }
-      }
-    }
-  }
-);
+const SUPABASE_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+const SUPABASE_ANON =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+
+const supabase: SupabaseClient | null =
+  SUPABASE_URL && SUPABASE_ANON
+    ? createClient(SUPABASE_URL, SUPABASE_ANON, {
+        db: {
+          schema: {
+            tables: {
+              customers: {
+                columns: {
+                  id: "uuid",
+                  name: "text",
+                  orgnr: "text",
+                  email: "text",
+                  phone: "text",
+                  address: "text",
+                  zip: "text",
+                  city: "text",
+                  country: "text",
+                  created_at: "timestamp",
+                  updated_at: "timestamp",
+                },
+              },
+            },
+          },
+        },
+      })
+    : null;
+
+function supabaseMissingResponse(status: number = 503) {
+  return NextResponse.json(
+    {
+      ok: status === 200,
+      customers: status === 200 ? [] : undefined,
+      error: status === 200 ? undefined : "Supabase is not configured",
+      message:
+        status === 200
+          ? "Supabase is not configured; returning an empty list"
+          : "Supabase is not configured",
+    },
+    { status }
+  );
+}
 
 // Zod-schema för validering av kundkort
 const customerCardSchema = z.object({
@@ -51,6 +69,7 @@ export const dynamic = "force-dynamic";
 
 // GET - Hämta alla kundkort
 export async function GET() {
+  if (!supabase) return supabaseMissingResponse(200);
   try {
     const { data, error } = await supabase
       .from("customers")
@@ -81,6 +100,7 @@ export async function GET() {
 
 // POST - Skapa nytt kundkort
 export async function POST(req: Request) {
+  if (!supabase) return supabaseMissingResponse();
   try {
     const body = await req.json();
     
@@ -166,6 +186,7 @@ export async function POST(req: Request) {
 
 // PUT - Uppdatera helt kundkort
 export async function PUT(req: Request, context: any) {
+  if (!supabase) return supabaseMissingResponse();
   try {
     const { id } = await context.params;
     const customerId = decodeURIComponent(id);
@@ -249,6 +270,7 @@ export async function PUT(req: Request, context: any) {
 
 // PATCH - Uppdatera specifika fält i kundkort
 export async function PATCH(req: Request, context: any) {
+  if (!supabase) return supabaseMissingResponse();
   try {
     const { id } = await context.params;
     const customerId = decodeURIComponent(id);
@@ -334,6 +356,7 @@ export async function PATCH(req: Request, context: any) {
 
 // DELETE - Ta bort kundkort
 export async function DELETE(req: Request, context: any) {
+  if (!supabase) return supabaseMissingResponse();
   try {
     const { id } = await context.params;
     const customerId = decodeURIComponent(id);

@@ -1,23 +1,33 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { exportInvoiceToBookkeeping } from "@/lib/bookkeeping";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL!;
+  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
 const SERVICE_ROLE =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE!;
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
 
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, {
-  auth: { persistSession: false },
-});
+const supabase: SupabaseClient | null =
+  SUPABASE_URL && SERVICE_ROLE
+    ? createClient(SUPABASE_URL, SERVICE_ROLE, {
+        auth: { persistSession: false },
+      })
+    : null;
 
 export async function POST(_req: Request, context: any) {
   const invoiceId = decodeURIComponent(context?.params?.invoiceId ?? "");
   if (!invoiceId) {
     return NextResponse.json({ error: "Invoice ID required" }, { status: 400 });
+  }
+
+  if (!supabase) {
+    return NextResponse.json(
+      { error: "Supabase is not configured" },
+      { status: 503 }
+    );
   }
 
   try {

@@ -1,18 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-const supabase = createClient(
-  (process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL)!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const openaiApiKey = process.env.OPENAI_API_KEY;
+const openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
+const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const supabase: SupabaseClient | null =
+  SUPABASE_URL && SERVICE_ROLE
+    ? createClient(SUPABASE_URL, SERVICE_ROLE, {
+        auth: { persistSession: false },
+      })
+    : null;
 
 const STORAGE_BUCKET = "docs";
 
 async function ensureBucketExists() {
+  if (!supabase) throw new Error("Supabase is not configured");
   const { data: existing, error: getErr } = await supabase.storage.getBucket(STORAGE_BUCKET);
   if (existing) return;
   if (getErr && (getErr as any)?.statusCode !== "404") {
@@ -26,6 +33,20 @@ async function ensureBucketExists() {
 }
 
 export async function POST(req: NextRequest) {
+  if (!openai) {
+    return NextResponse.json(
+      { ok: false, error: "OpenAI is not configured" },
+      { status: 503 }
+    );
+  }
+
+  if (!supabase) {
+    return NextResponse.json(
+      { ok: false, error: "Supabase is not configured" },
+      { status: 503 }
+    );
+  }
+
   try {
     const form = await req.formData();
     const file = form.get("file") as File | null;

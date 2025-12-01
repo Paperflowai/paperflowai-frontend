@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL!;
+  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
 const SERVICE_ROLE =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE!;
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
 
-const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
-  auth: { persistSession: false },
-});
+const admin: SupabaseClient | null =
+  SUPABASE_URL && SERVICE_ROLE
+    ? createClient(SUPABASE_URL, SERVICE_ROLE, {
+        auth: { persistSession: false },
+      })
+    : null;
 
 function derivePath(url: string, bucket: string) {
   try {
@@ -23,6 +26,13 @@ function derivePath(url: string, bucket: string) {
 export async function DELETE(_req: Request, context: any) {
   const id = decodeURIComponent(String(context?.params?.id ?? ""));
   if (!id) return NextResponse.json({ error: "missing id" }, { status: 400 });
+
+  if (!admin) {
+    return NextResponse.json(
+      { error: "Supabase is not configured" },
+      { status: 503 }
+    );
+  }
 
   // Hämta raden
   const sel = await admin.from("documents").select("*").eq("id", id).single();

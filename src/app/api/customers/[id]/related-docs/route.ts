@@ -1,18 +1,23 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const SUPABASE_URL =
-  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL!;
-const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+const SERVICE_ROLE =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE;
 
-const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
-  auth: { persistSession: false },
-});
+const admin: SupabaseClient | null =
+  SUPABASE_URL && SERVICE_ROLE
+    ? createClient(SUPABASE_URL, SERVICE_ROLE, {
+        auth: { persistSession: false },
+      })
+    : null;
 
 async function safeSelect(table: string, customerId: string, want: number) {
+  if (!admin) return [];
   try {
     const { data, error } = await admin
       .from(table)
@@ -74,9 +79,14 @@ export async function GET(_req: Request, context: any) {
     return NextResponse.json({ error: "missing customer id" }, { status: 400 });
   }
 
+  if (!admin) {
+    return NextResponse.json({ offers: [], orders: [], invoices: [] });
+  }
+
   const want = 5;
 
   async function listOfferDocs(customerId: string, want: number) {
+    if (!admin) return [];
     let rows: any[] = [];
     try {
       const q = await admin
