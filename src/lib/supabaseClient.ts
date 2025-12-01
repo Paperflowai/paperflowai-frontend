@@ -19,11 +19,25 @@ const mockFetch: typeof fetch = async () =>
     { status: 503, headers: { "Content-Type": "application/json" } }
   );
 
-export const supabase: SupabaseClient = createClient(
-  rawUrl || FALLBACK_URL,
-  rawAnon || FALLBACK_ANON,
-  supabaseConfigured ? undefined : { global: { fetch: mockFetch } }
-);
+let client: SupabaseClient;
+
+try {
+  // createClient can throw if the URL is missing/invalid. In local/demo runs we
+  // still want a harmless mock client so the UI can render without crashing.
+  client = createClient(
+    rawUrl || FALLBACK_URL,
+    rawAnon || FALLBACK_ANON,
+    supabaseConfigured ? undefined : { global: { fetch: mockFetch } }
+  );
+} catch (error) {
+  // Fall back to a mock client that always yields a 503-style response. This
+  // keeps client-side renders alive even if env vars are empty or malformed.
+  client = createClient(FALLBACK_URL, FALLBACK_ANON, {
+    global: { fetch: mockFetch },
+  });
+}
+
+export const supabase: SupabaseClient = client;
 
 // --- Temporary typing shim: export Database type used by supabaseDatabase.ts ---
 // Byt gärna mot genererade typer från Supabase senare.
