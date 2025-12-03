@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import crypto from "crypto";
 import { buildDocument } from "@/lib/pdf/buildDocument";
+import { extractOfferFields } from "@/utils/extractOfferFields";
 
 export const runtime = "nodejs";
 
@@ -54,51 +55,157 @@ export async function POST(req: Request) {
     const safeJson = jsonData || {};
     const kund = safeJson.kund || safeJson.customer || {};
 
-    // Försök hitta kundnamn i jsonData eller texten
-    const extractedNameFromText = extractCustomerNameFromText(textData || "");
-    const kundNamn =
+    // ============ EXTRAHERA KUNDDATA ============
+    // 1) Från textData med extractOfferFields
+    const extracted = extractOfferFields(textData || "");
+    console.log("[create-from-gpt] extracted:", extracted);
+
+    // 2) Merga jsonData.kund och extractOfferFields (jsonData prioriteras)
+    const companyName =
       kund.namn ||
       kund.name ||
+      kund.foretag ||
       safeJson.kundnamn ||
-      extractedNameFromText ||
+      extracted.companyName ||
+      extractCustomerNameFromText(textData || "") ||
       "Ny kund";
 
-    // 1) Sätt kund-ID
+    const contactPerson =
+      kund.kontaktperson ||
+      kund.contactPerson ||
+      extracted.contactPerson ||
+      null;
+
+    const email =
+      kund.epost ||
+      kund.email ||
+      extracted.email ||
+      null;
+
+    const phone =
+      kund.telefon ||
+      kund.phone ||
+      extracted.phone ||
+      null;
+
+    const address =
+      kund.adress ||
+      kund.address ||
+      extracted.address ||
+      null;
+
+    const zip =
+      kund.postnummer ||
+      kund.zip ||
+      extracted.zip ||
+      null;
+
+    const city =
+      kund.ort ||
+      kund.city ||
+      extracted.city ||
+      null;
+
+    const orgNr =
+      kund.orgnr ||
+      kund.org_nr ||
+      extracted.orgNr ||
+      null;
+
+    const country =
+      kund.land ||
+      kund.country ||
+      extracted.country ||
+      "Sverige";
+
+    const customerNumber =
+      extracted.offerNumber ||
+      safeJson.offertnummer ||
+      null;
+
+    const contactDate =
+      extracted.date ||
+      safeJson.datum ||
+      null;
+
+    // 3) Sätt kund-ID
     if (!customerId) {
       // Ny kund → skapa id
       customerId = crypto.randomUUID();
+      console.log("[create-from-gpt] Creating new customer:", customerId);
+    } else {
+      console.log("[create-from-gpt] Updating existing customer:", customerId);
     }
 
-    // 2) Upsert i public.customers (det är den dashboarden läser från)
-    await supabaseAdmin.from("customers").upsert(
-      {
-        id: customerId,
-        name: kundNamn,
-        orgnr: kund.orgnr || kund.orgnr || null,
-        email: kund.epost || kund.email || null,
-        phone: kund.telefon || kund.phone || null,
-        address: kund.adress || kund.address || null,
-        zip: kund.postnummer || kund.zip || null,
-        city: kund.ort || kund.city || null,
-        country: kund.land || kund.country || "Sverige",
-      },
-      { onConflict: "id" }
-    );
+    // 4) Upsert i public.customers (använd både gamla och nya kolumnnamn för kompatibilitet)
+    const customerData = {
+      // ID på kunden (UUID)
+      id: customerId,
 
-    // 3) Spegla till public.customer_cards (för framtida logik)
-    await supabaseAdmin.from("customer_cards").upsert(
-      {
-        customer_id: customerId,
-        name: kundNamn,
-        orgnr: kund.orgnr || null,
-        email: kund.epost || kund.email || null,
-        phone: kund.telefon || kund.phone || null,
-        address: kund.adress || kund.address || null,
-      },
-      { onConflict: "customer_id" }
-    );
+      // Namn & orgnr – vi använder både gamla och nya kolumnnamn
+      name: companyName,             // om vi har kolumnen "name"
+      company_name: companyName,     // om vi har kolumnen "company_name"
+      orgnr: orgNr,
+      org_nr: orgNr,
 
-    // 4) Generera PDF
+      // Kontaktperson
+      contact_person: contactPerson ?? null,
+
+      // Kontaktuppgifter
+      email: email ?? null,
+      phone: phone ?? null,
+      address: address ?? null,
+      zip: zip ?? null,
+      city: city ?? null,
+      country: country ?? "Sverige",
+
+      // Offert-info kopplad till kunden
+      customer_number: customerNumber ?? null,
+      contact_date: contactDate ?? null,
+
+      updated_at: new Date().toISOString(),
+    };
+
+    console.log("[create-from-gpt] customerData:", customerData);
+
+    const { error: customerError } = await supabaseAdmin
+      .from("customers")
+      .upsert(customerData, { onConflict: "id" });
+
+    if (customerError) {
+      console.error("[create-from-gpt] Customer upsert error:", customerError);
+      return bad("Customer upsert failed: " + customerError.message, 500);
+    }
+
+    console.log("[create-from-gpt] ✅ Customer data saved:", {
+      customerId,
+      companyName,
+      contactPerson,
+      email,
+    });
+
+    // 5) Upsert i public.customer_cards
+    const customerDataCards = {
+      customer_id: customerId,
+      name: companyName ?? "Ny kund",
+      orgnr: orgNr ?? null,
+      email: email ?? null,
+      phone: phone ?? null,
+      address: address ?? null,
+    };
+
+    const { error: cardsError } = await supabaseAdmin
+      .from("customer_cards")
+      .upsert(customerDataCards, { onConflict: "customer_id" });
+
+    if (cardsError) {
+      console.warn("[create-from-gpt] customer_cards upsert warning:", cardsError.message);
+      // Fortsätt ändå - customer_cards är inte kritisk
+    } else {
+      console.log("[create-from-gpt] ✅ Customer cards saved");
+    }
+
+    // 6) Generera PDF
     const pdfBytes = await buildDocument(
       {
         customerId,
@@ -111,7 +218,7 @@ export async function POST(req: Request) {
       "offer"
     );
 
-    // 5) Lagra PDF i Storage
+    // 7) Lagra PDF i Storage
     const docId = crypto.randomUUID();
     const bucket = "paperflow-files";
     const storagePath = `documents/${customerId}/offers/${docId}.pdf`;
@@ -135,7 +242,7 @@ export async function POST(req: Request) {
       return bad("Could not generate public URL", 500);
     }
 
-    // 6) Spara rad i documents
+    // 8) Spara rad i documents
     const { data: docRow, error: docErr } = await supabaseAdmin
       .from("documents")
       .insert({
@@ -158,7 +265,7 @@ export async function POST(req: Request) {
       return bad("Insert failed: " + docErr.message, 500);
     }
 
-    // 7) Spara själva offerten i offers-tabellen, inklusive file_url
+    // 9) Spara själva offerten i offers-tabellen, inklusive file_url
     const { data: offerRow, error: offerErr } = await supabaseAdmin
       .from("offers")
       .insert({
@@ -186,6 +293,20 @@ export async function POST(req: Request) {
         documentId: docRow.id,
         offerId: offerRow.id,
         pdfUrl: pub.publicUrl,
+        // ✅ Inkludera customerData för autofyll på frontend
+        customerData: {
+          companyName,
+          orgNr,
+          contactPerson,
+          email,
+          phone,
+          address,
+          zip,
+          city,
+          country,
+          customerNumber,
+          contactDate,
+        },
       },
       { status: 200 }
     );

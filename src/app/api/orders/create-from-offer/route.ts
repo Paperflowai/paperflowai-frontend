@@ -63,104 +63,149 @@ export async function POST(req: Request) {
     const offerPath: string | undefined = body?.offerPath;
     const bucketName: string = body?.bucket || "paperflow-files";
 
-    if (!customerId || !offerPath) {
+    if (!customerId) {
       return json(
         {
           ok: false,
           where: "input",
-          message: "customerId och offerPath krävs",
+          message: "customerId krävs",
         },
         400
       );
     }
 
-    // 1) Hämta offert-PDF från Storage
-    console.log("[create-order] download", { bucketName, offerPath });
+    // Om offerPath finns, skapa order från offert-PDF
+    if (offerPath) {
+      // 1) Hämta offert-PDF från Storage
+      console.log("[create-order] download", { bucketName, offerPath });
 
-    const { data: srcFile, error: dlErr } = await admin.storage
-      .from(bucketName)
-      .download(offerPath);
+      const { data: srcFile, error: dlErr } = await admin.storage
+        .from(bucketName)
+        .download(offerPath);
 
-    if (dlErr || !srcFile) {
-      console.error("[create-order] download error:", dlErr);
-      return json(
-        {
-          ok: false,
-          where: "download",
-          message: dlErr?.message || "Kunde inte hämta offert-PDF",
-        },
-        500
-      );
-    }
+      if (dlErr || !srcFile) {
+        console.error("[create-order] download error:", dlErr);
+        return json(
+          {
+            ok: false,
+            where: "download",
+            message: dlErr?.message || "Kunde inte hämta offert-PDF",
+          },
+          500
+        );
+      }
 
-    const srcBytes = new Uint8Array(await srcFile.arrayBuffer());
-    if (!srcBytes.length) {
-      return json(
-        {
-          ok: false,
-          where: "download",
-          message: "Tom fil vid nedladdning",
-        },
-        500
-      );
-    }
+      const srcBytes = new Uint8Array(await srcFile.arrayBuffer());
+      if (!srcBytes.length) {
+        return json(
+          {
+            ok: false,
+            where: "download",
+            message: "Tom fil vid nedladdning",
+          },
+          500
+        );
+      }
 
-    // 2) Stämpla rubriken till ORDERBEKRÄFTELSE
-    const stamped = await stampOrderHeader(srcBytes);
+      // 2) Stämpla rubriken till ORDERBEKRÄFTELSE
+      const stamped = await stampOrderHeader(srcBytes);
 
-    // 3) Ladda upp som order-PDF
-    const ts = Date.now();
-    const filename = `order-${ts}.pdf`;
-    const destPath = `orders/${customerId}/${filename}`;
+      // 3) Ladda upp som order-PDF
+      const ts = Date.now();
+      const filename = `order-${ts}.pdf`;
+      const destPath = `orders/${customerId}/${filename}`;
 
-    const { error: upErr } = await admin.storage
-      .from(bucketName)
-      .upload(destPath, stamped, {
-        contentType: "application/pdf",
-        upsert: true,
+      const { error: upErr } = await admin.storage
+        .from(bucketName)
+        .upload(destPath, stamped, {
+          contentType: "application/pdf",
+          upsert: true,
+        });
+
+      if (upErr) {
+        console.error("[create-order] upload error:", upErr);
+        return json(
+          { ok: false, where: "upload", message: upErr.message },
+          500
+        );
+      }
+
+      // 4) Hämta publik URL till filen
+      const { data: pub } = admin.storage
+        .from(bucketName)
+        .getPublicUrl(destPath);
+
+      const fileUrl = pub?.publicUrl || null;
+
+      // 5) Spara i documents-tabellen
+      const { error: docErr } = await admin.from("documents").insert({
+        customer_id: customerId,
+        doc_type: "order",
+        type: "order",
+        storage_path: destPath,
+        filename,
+        file_url: fileUrl,
+        bucket: bucketName,
+        bucket_name: bucketName,
+        status: "created",
+        created_at: new Date().toISOString(),
       });
 
-    if (upErr) {
-      console.error("[create-order] upload error:", upErr);
-      return json(
-        { ok: false, where: "upload", message: upErr.message },
-        500
-      );
+      if (docErr) {
+        console.warn("[create-order] documents insert warn:", docErr.message);
+      }
+
+      console.log("[create-order] OK", { destPath, bucketName, fileUrl });
+
+      return json({
+        ok: true,
+        path: destPath,
+        bucket: bucketName,
+        fileUrl,
+      });
+    } else {
+      // Om ingen offerPath: skapa order utan PDF (placeholder)
+      console.log("[create-order] Creating order without PDF for customer:", customerId);
+
+      // Spara en order-post i documents-tabellen utan fil
+      const ts = Date.now();
+      const placeholderPath = `orders/${customerId}/order-${ts}-placeholder`;
+
+      const { error: docErr } = await admin.from("documents").insert({
+        customer_id: customerId,
+        doc_type: "order",
+        type: "order",
+        storage_path: placeholderPath,
+        filename: `order-${ts}.txt`,
+        file_url: null,
+        bucket: bucketName,
+        bucket_name: bucketName,
+        status: "created",
+        created_at: new Date().toISOString(),
+      });
+
+      if (docErr) {
+        console.error("[create-order] documents insert error:", docErr);
+        return json(
+          {
+            ok: false,
+            where: "database",
+            message: "Kunde inte spara order i databasen",
+          },
+          500
+        );
+      }
+
+      console.log("[create-order] Order created without PDF");
+
+      return json({
+        ok: true,
+        path: null,
+        bucket: bucketName,
+        fileUrl: null,
+        message: "Order skapad utan PDF",
+      });
     }
-
-    // 4) Hämta publik URL till filen
-    const { data: pub } = admin.storage
-      .from(bucketName)
-      .getPublicUrl(destPath);
-
-    const fileUrl = pub?.publicUrl || null;
-
-    // 5) Spara i documents-tabellen
-    const { error: docErr } = await admin.from("documents").insert({
-      customer_id: customerId,
-      doc_type: "order", // passerar din CHECK-constraint
-      type: "order",
-      storage_path: destPath,
-      filename,
-      file_url: fileUrl,
-      bucket: bucketName,
-      bucket_name: bucketName,
-      status: "created",
-      created_at: new Date().toISOString(),
-    });
-
-    if (docErr) {
-      console.warn("[create-order] documents insert warn:", docErr.message);
-    }
-
-    console.log("[create-order] OK", { destPath, bucketName, fileUrl });
-
-    return json({
-      ok: true,
-      path: destPath,
-      bucket: bucketName,
-      fileUrl,
-    });
   } catch (err: any) {
     console.error("[create-order] exception:", err);
     return json(

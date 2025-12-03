@@ -166,8 +166,8 @@ export default function KundDetaljsida() {
   const params = useParams();
   const router = useRouter();
 
-const customerId = String((params as { id?: string })?.id ?? "");
-const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
+  const customerId = String((params as { id?: string })?.id ?? "");
+  const id = customerId;
 
 
 
@@ -178,20 +178,30 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
   const handleCreateOrder = async () => {
     setOrderLoading(true);
     try {
+      // Försök hitta offerPath, men fortsätt även om ingen hittas
+      const offerData = await ensureOfferPath();
+
+      if (!offerData) {
+        console.warn("[handleCreateOrder] No offer found, creating order without PDF");
+      }
+
       const res = await fetch("/api/orders/create-from-offer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
           customerId,
-          offerPath: (await ensureOfferPath()).path,
+          offerPath: offerData?.path || undefined,
           bucket: BUCKET_DOCS,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
-      // Fallback: hämta order-PDF som Blob via path/bucket och visa som blob:URL
+
+      // Om order skapades med PDF, hämta och visa den
       if (json?.ok && json?.path && json?.bucket) {
+        console.log("[handleCreateOrder] Order created with PDF:", json.path);
+
         const { data: file, error } = await supabase.storage
           .from(json.bucket)
           .download(json.path);
@@ -213,23 +223,12 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
           (window as any)._lastOrderUrl = url;
           console.log("[order] blob url:", url);
         }
-        await save({ orderCreated: true });
-        return;
+      } else if (json?.ok) {
+        // Order skapades utan PDF
+        console.log("[handleCreateOrder] Order created without PDF");
+        alert("Order skapad! (Ingen PDF genererades eftersom offert saknas)");
       }
-      if (json?.ok && json?.path && json?.bucket) {
-        const { data: pdfBlob, error } = await supabase.storage
-          .from(json.bucket)
-          .download(json.path);
-        if (!error && pdfBlob) {
-          const url = URL.createObjectURL(pdfBlob);
-          setOrderPdfUrl((old) => {
-            if (old) URL.revokeObjectURL(old);
-            return url;
-          });
-          console.log("[order] blob url:", url);
-          (window as any)._lastOrderUrl = url;
-        }
-      }
+
       await save({ orderCreated: true });
     } catch (e: any) {
       console.error(e);
@@ -293,77 +292,102 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
   const offertPagesRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    // Först försök hämta från den nya strukturen (paperflow_customers_v1)
-    const existingCustomers = JSON.parse(
-      localStorage.getItem("paperflow_customers_v1") || "[]"
-    );
-    const customer = existingCustomers.find(
-      (c: any) => String(c.id) === String(id)
-    );
+    // ============ LADDA KUNDDATA ============
+    // Prioritet: 1) Supabase customers-tabellen, 2) localStorage
 
-    if (customer) {
-      setData({
-        companyName: customer.companyName || "",
-        orgNr: customer.orgNr || "",
-        contactPerson: customer.contactPerson || "",
-        role: customer.role || "",
-        phone: customer.phone || "",
-        email: customer.email || "",
-        address: customer.address || "",
-        zip: customer.zip || "",
-        city: customer.city || "",
-        country: customer.country || "Sverige",
-        contactDate: customer.contactDate || "",
-        notes: customer.notes || "",
-        customerNumber: customer.customerNumber || "",
-        offerText: customer.offerText || "",
-        totalSum: customer.totalSum || "",
-        vatPercent: customer.vatPercent || "",
-        vatAmount: customer.vatAmount || "",
-        validityDays: customer.validityDays || "",
-      });
-    } else {
-      const saved = localStorage.getItem(`kund_${id}`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setData({
-          ...parsed,
-          offerText: "",
-          totalSum: "",
-          vatPercent: "",
-          vatAmount: "",
-          validityDays: "",
-        });
-      } else {
-        const nyttKundnummer = `K-${Math.floor(
-          100000 + Math.random() * 900000
-        )}`;
-        const initialData = {
-          ...data,
-          customerNumber: nyttKundnummer,
-          offerText: "",
-          totalSum: "",
-          vatPercent: "",
-          vatAmount: "",
-          validityDays: "",
-        };
-        localStorage.setItem(`kund_${id}`, JSON.stringify(initialData));
-        setData(initialData);
+    async function loadCustomerData() {
+      const getField = (row: any, keys: string[], fallback: string = "") => {
+        if (!row) return fallback;
+        for (const key of keys) {
+          const value = row[key];
+          if (value !== undefined && value !== null && value !== "") {
+            return String(value);
+          }
+        }
+        return fallback;
+      };
+
+      try {
+        const { data: customerRow, error } = await supabase
+          .from("customer_cards")
+          .select("*")
+          .eq("customer_id", customerId)
+          .maybeSingle();
+
+        console.log("[page.tsx] customerRow:", customerRow);
+        console.log("[page.tsx] error:", error ?? null);
+
+        if (!error && customerRow) {
+          console.log("[page.tsx] ✅ Loaded customer from Supabase customer_cards:", customerRow);
+
+          setData({
+            companyName: customerRow.name || "",
+            orgNr: customerRow.orgnr || "",
+            contactPerson: "",
+            role: "",
+            phone: customerRow.phone || "",
+            email: customerRow.email || "",
+            address: customerRow.address || "",
+            zip: "",
+            city: "",
+            country: "Sverige",
+            contactDate: "",
+            notes: "",
+            customerNumber: "",
+            offerText: "",
+            totalSum: "",
+            vatPercent: "",
+            vatAmount: "",
+            validityDays: ""
+          });
+
+          return;
+        } else if (error) {
+          console.warn("[page.tsx] Supabase fetch error:", error.message);
+        }
+      } catch (e) {
+        console.warn("[page.tsx] Failed to load from Supabase:", e);
+      }
+
+      const existingCustomers = JSON.parse(
+        localStorage.getItem("paperflow_customers_v1") || "[]"
+      );
+      const localCustomer = existingCustomers.find(
+        (c: any) => String(c.id) === String(customerId)
+      );
+
+      if (localCustomer) {
+        console.log("[page.tsx] Loaded customer from localStorage:", localCustomer);
+        setData((prev) => ({
+          ...prev,
+          companyName: localCustomer.companyName || localCustomer.namn || prev.companyName,
+          orgNr: localCustomer.orgNr || localCustomer.orgnr || prev.orgNr,
+          contactPerson: localCustomer.contactPerson || localCustomer.kontaktperson || prev.contactPerson,
+          phone: localCustomer.phone || localCustomer.telefon || prev.phone,
+          email: localCustomer.email || localCustomer.epost || prev.email,
+          address: localCustomer.address || localCustomer.adress || prev.address,
+          zip: localCustomer.zip || localCustomer.postnummer || prev.zip,
+          city: localCustomer.city || localCustomer.ort || prev.city,
+          country: localCustomer.country || localCustomer.land || prev.country,
+          customerNumber: localCustomer.customerNumber || localCustomer.offertnummer || prev.customerNumber
+        }));
       }
     }
 
-    const savedImages = localStorage.getItem(`kund_images_${id}`);
+    loadCustomerData();
+
+    const savedImages = localStorage.getItem(`kund_images_${customerId}`);
     if (savedImages) setImages(JSON.parse(savedImages));
 
-    const savedOffertMeta = localStorage.getItem(`kund_offert_${id}`);
-    const savedOrderMeta = localStorage.getItem(`kund_order_${id}`);
-    const savedInvoiceMeta = localStorage.getItem(`kund_invoice_${id}`);
+    const savedOffertMeta = localStorage.getItem(`kund_offert_${customerId}`);
+    const savedOrderMeta = localStorage.getItem(`kund_order_${customerId}`);
+    const savedInvoiceMeta = localStorage.getItem(`kund_invoice_${customerId}`);
 
     async function restoreDoc(
       type: "offert" | "order" | "invoice",
       metaStr: string | null
     ) {
-      const key = `${type}_${id}`;
+      const key = `${type}_${customerId}`;
 
       // 1) Försök hämta från IndexedDB först
       const blob = await idbGet(key);
@@ -385,7 +409,7 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
         const { data: docs, error } = await supabase
           .from("documents")
           .select("*")
-          .eq("customer_id", id)
+          .eq("customer_id", customerId)
           .eq("doc_type", type)
           .order("created_at", { ascending: false })
           .limit(1);
@@ -425,10 +449,10 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
       .then(() => restoreDoc("invoice", savedInvoiceMeta))
       .catch(() => { });
 
-    const savedStatus = localStorage.getItem(`kund_sent_${id}`);
+    const savedStatus = localStorage.getItem(`kund_sent_${customerId}`);
     if (savedStatus) setSentStatus(JSON.parse(savedStatus));
 
-    const savedBk = localStorage.getItem(`kund_bookkeeping_${id}`);
+    const savedBk = localStorage.getItem(`kund_bookkeeping_${customerId}`);
     if (savedBk) setBookkeepingFiles(JSON.parse(savedBk));
 
     return () => {
@@ -436,7 +460,7 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
       objectUrlsRef.current = [];
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [customerId]);
 
   useEffect(() => {
     if (!isMobile || !offert?.url || !offertPagesRef.current) return;
@@ -464,7 +488,7 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
   useEffect(() => {
     const loadFlowDocuments = async () => {
       try {
-        const response = await fetch(`/api/customers/${id}/documents`);
+        const response = await fetch(`/api/customers/${customerId}/documents`);
         if (response.ok) {
           const documents = await response.json();
           setFlowDocuments(documents);
@@ -474,10 +498,10 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
       }
     };
 
-    if (id) {
+    if (customerId) {
       loadFlowDocuments();
     }
-  }, [id]);
+  }, [customerId]);
 
   // Fallback vid mount (om offerten redan fanns)
   useEffect(() => {
@@ -495,22 +519,26 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
     })();
   }, [offerPath, customerId]);
 
-  // Helper som säkrar offerPath även när offerten bara är en blob-preview
-  async function ensureOfferPath(): Promise<{ bucket: string; path: string }> {
+  // Helper som försöker hitta offerPath, returnerar null om ingen hittas
+  async function ensureOfferPath(): Promise<{ bucket: string; path: string } | null> {
     const el = document.querySelector('[data-testid="offer-preview"]');
     const pathAttr = el?.getAttribute("data-offer-path") || null;
 
     const path = offerPath ?? pathAttr;
     if (path) return { bucket: BUCKET_DOCS, path };
 
-    const { data: doc } = await supabase
+    // Försök hitta dokument - kolla både type och doc_type fält
+    const { data: docs } = await supabase
       .from("documents")
-      .select("storage_path")
+      .select("storage_path, type, doc_type")
       .eq("customer_id", customerId)
-      .in("type", ["offer", "offert"])
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .order("created_at", { ascending: false });
+
+    // Hitta första dokumentet som är en offert (kolla både type och doc_type)
+    const doc = docs?.find(d => {
+      const docType = d.type || d.doc_type || "";
+      return docType === "offer" || docType === "offert";
+    });
 
     if (doc?.storage_path) {
       setOfferPath(doc.storage_path);
@@ -521,7 +549,50 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
       return { bucket: BUCKET_DOCS, path: doc.storage_path };
     }
 
-    throw new Error("Ingen offert hittad. Ladda upp offerten igen i första rutan.");
+    // Om ingen hittades i Supabase men vi har en lokal offert, ladda upp den först
+    if (offert?.url) {
+      try {
+        // Hämta blob från IndexedDB
+        const key = `offert_${customerId}`;
+        const blob = await idbGet(key);
+
+        if (blob) {
+          console.log("[ensureOfferPath] Uploading local offer to Supabase...");
+          const timestamp = Date.now();
+          const fileName = `offers/${customerId}/${timestamp}-${offert.name}`;
+
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from(BUCKET_DOCS)
+            .upload(fileName, blob, { upsert: true });
+
+          if (uploadError) {
+            console.error("Failed to upload offer:", uploadError);
+            return null;
+          }
+
+          // Spara i documents-tabellen
+          const { error: docError } = await supabase.from("documents").insert({
+            customer_id: customerId,
+            type: "offer",
+            storage_path: uploadData.path,
+            filename: offert.name,
+            created_at: new Date().toISOString(),
+          });
+
+          if (docError) {
+            console.error("Failed to save document record:", docError);
+          }
+
+          setOfferPath(uploadData.path);
+          return { bucket: BUCKET_DOCS, path: uploadData.path };
+        }
+      } catch (err) {
+        console.error("[ensureOfferPath] Error uploading local offer:", err);
+      }
+    }
+
+    console.warn("[ensureOfferPath] No offer found for customer:", customerId);
+    return null;
   }
 
   function persistData(updated: typeof data) {
@@ -529,7 +600,7 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
       localStorage.getItem("paperflow_customers_v1") || "[]"
     );
     const customerIndex = existingCustomers.findIndex(
-      (c: any) => String(c.id) === String(id)
+      (c: any) => String(c.id) === String(customerId)
     );
 
     if (customerIndex !== -1) {
@@ -559,7 +630,7 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
         JSON.stringify(existingCustomers)
       );
     } else {
-      localStorage.setItem(`kund_${id}`, JSON.stringify(updated));
+      localStorage.setItem(`kund_${customerId}`, JSON.stringify(updated));
     }
 
     setData(updated);
@@ -584,7 +655,7 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
         const newImage = { name: file.name, url: result };
         setImages((prev) => {
           const updated = [...prev, newImage];
-          localStorage.setItem(`kund_images_${id}`, JSON.stringify(updated));
+          localStorage.setItem(`kund_images_${customerId}`, JSON.stringify(updated));
           return updated;
         });
       };
@@ -595,7 +666,7 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
   function deleteImage(index: number) {
     setImages((prev) => {
       const updated = [...prev.slice(0, index), ...prev.slice(index + 1)];
-      localStorage.setItem(`kund_images_${id}`, JSON.stringify(updated));
+      localStorage.setItem(`kund_images_${customerId}`, JSON.stringify(updated));
       return updated;
     });
   }
@@ -936,12 +1007,12 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
       vatAmount: "",
       validityDays: "",
     };
-    localStorage.setItem(`kund_${id}`, JSON.stringify(tomData));
+    localStorage.setItem(`kund_${customerId}`, JSON.stringify(tomData));
     setData(tomData);
 
     const newStatus = { ...sentStatus, offert: "" };
     setSentStatus(newStatus);
-    localStorage.setItem(`kund_sent_${id}`, JSON.stringify(newStatus));
+    localStorage.setItem(`kund_sent_${customerId}`, JSON.stringify(newStatus));
   }
 
   // === Uppladdning (IndexedDB + Supabase Storage + säker reset av input) ===
@@ -958,7 +1029,7 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
 
     try {
       // 1) Spara filen (Blob) i IndexedDB
-      const key = `${type}_${id}`;
+      const key = `${type}_${customerId}`;
       await idbSet(key, uploaded);
 
       // 2) Skapa objectURL för visning nu
@@ -967,7 +1038,7 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
 
       // 3) Spara ENDAST filnamnet i localStorage
       const meta = { name: uploaded.name };
-      localStorage.setItem(`kund_${type}_${id}`, JSON.stringify(meta));
+      localStorage.setItem(`kund_${type}_${customerId}`, JSON.stringify(meta));
 
       // 4) Upload to Supabase Storage for offerts
       if (type === "offert") {
@@ -1016,17 +1087,32 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
               headers: { "Content-Type": "application/json" },
               credentials: "include",
               body: JSON.stringify({
-                bucket: OFFER_BUCKET,
+                bucket: BUCKET_DOCS,
                 path: uploadData.path,
               }),
             });
 
             if (resp.ok) {
               const json = await resp.json();
-              const updated = { ...data, ...json.parsed.customer };
+
+              // Merge customer info + offer metadata + totals
+              const offerData = {
+                ...json.parsed.customer,
+                // Offertinformation
+                customerNumber: json.parsed.metadata?.offerNumber || data.customerNumber,
+                contactDate: json.parsed.metadata?.date || data.contactDate,
+                validityDays: json.parsed.metadata?.validity || data.validityDays,
+                // Finansiell information
+                totalSum: json.parsed.totals?.net?.toString() || data.totalSum,
+                vatPercent: json.parsed.totals?.vat?.toString() || data.vatPercent,
+                vatAmount: json.parsed.totals?.gross?.toString() || data.vatAmount,
+              };
+
+              const updated = { ...data, ...offerData };
               setData(updated);
               persistData(updated);
 
+              // Uppdatera customer i databasen (bara kunduppgifter, inte offer-data)
               const { error: updateError } = await supabase
                 .from("customers")
                 .update(json.parsed.customer)
@@ -1035,7 +1121,7 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
               if (updateError) {
                 console.error("Customer update error:", updateError);
               } else {
-                console.log("Autofyllda fält från server:", json.parsed.customer);
+                console.log("✅ Autofyllda fält från server:", offerData);
               }
             } else {
               const errorText = await resp.text();
@@ -1070,9 +1156,9 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
         if (type === "invoice") {
           try {
             const fileName = `${Date.now()}-faktura.pdf`;
-            const storagePath = `invoices/${id}/${fileName}`;
+            const storagePath = `invoices/${customerId}/${fileName}`;
             await supabase.from("documents").insert({
-              customer_id: id,
+              customer_id: customerId,
               doc_type: "invoice",
               storage_path: storagePath,
               filename: fileName,
@@ -1120,7 +1206,7 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
 
     const newStatus = { ...sentStatus, [typ]: now };
     setSentStatus(newStatus);
-    localStorage.setItem(`kund_sent_${id}`, JSON.stringify(newStatus));
+    localStorage.setItem(`kund_sent_${customerId}`, JSON.stringify(newStatus));
 
     alert(`${typ} skickad till ${data.email}`);
   }
@@ -1154,7 +1240,7 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
         setBookkeepingFiles((prev) => {
           const updated = [...prev, entry];
           localStorage.setItem(
-            `kund_bookkeeping_${id}`,
+            `kund_bookkeeping_${customerId}`,
             JSON.stringify(updated)
           );
           return updated;
@@ -1169,7 +1255,7 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
   function deleteBookkeeping(index: number) {
     setBookkeepingFiles((prev) => {
       const updated = [...prev.slice(0, index), ...prev.slice(index + 1)];
-      localStorage.setItem(`kund_bookkeeping_${id}`, JSON.stringify(updated));
+      localStorage.setItem(`kund_bookkeeping_${customerId}`, JSON.stringify(updated));
       return updated;
     });
   }
@@ -1178,7 +1264,7 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
   async function createOfferFromForm() {
     try {
       const response = await fetch(
-        `/api/customers/${id}/offers/create-from-form`,
+        `/api/customers/${customerId}/offers/create-from-form`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1290,9 +1376,9 @@ const id = Number.isFinite(Number(customerId)) ? Number(customerId) : NaN;
 
   // Ta bort en huvud-PDF
   async function removeDoc(type: "offert" | "order" | "invoice") {
-    const key = `${type}_${id}`;
+    const key = `${type}_${customerId}`;
     await idbDel(key);
-    localStorage.removeItem(`kund_${type}_${id}`);
+    localStorage.removeItem(`kund_${type}_${customerId}`);
 
     if (type === "offert") setOffert(null);
     if (type === "order") setOrder(null);

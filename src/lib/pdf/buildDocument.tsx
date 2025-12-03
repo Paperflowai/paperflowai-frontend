@@ -1,10 +1,17 @@
 // src/lib/pdf/buildDocument.tsx
-import { pdf, Document, Page, Text, StyleSheet } from '@react-pdf/renderer';
+import { pdf, Document, Page, Text, StyleSheet, View } from '@react-pdf/renderer';
 import OfferPdf from '@/lib/pdf/OfferPdf';
 
-export type DocumentVariant = 'offer' | 'orderConfirmation';
+export type DocumentType = 'offer' | 'order' | 'invoice' | 'orderConfirmation';
 
-export interface DocumentData {
+// Ny signatur som används av API routes
+export interface BuildDocumentParams {
+  type: DocumentType;
+  data: any;
+}
+
+// Gammal signatur för bakåtkompatibilitet
+export interface LegacyDocumentData {
   customerId: string;
   title?: string;
   amount?: number;
@@ -13,6 +20,8 @@ export interface DocumentData {
   data?: any;
 }
 
+export type DocumentVariant = 'offer' | 'orderConfirmation';
+
 const styles = StyleSheet.create({
   page: {
     padding: 40,
@@ -20,71 +29,179 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     marginBottom: 16,
+    fontWeight: 'bold',
+  },
+  subtitle: {
+    fontSize: 14,
+    marginBottom: 12,
+    color: '#666',
   },
   body: {
     fontSize: 12,
     lineHeight: 1.4,
   },
+  section: {
+    marginBottom: 10,
+  },
+  label: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  value: {
+    fontSize: 12,
+    marginBottom: 8,
+  },
 });
 
-// Gemensam builder som renderar React-PDF-komponenten till riktiga bytes
+// Hjälpfunktion för att rendera en enkel dokumentsida
+function renderSimpleDocument(
+  title: string,
+  subtitle: string,
+  data: any
+): JSX.Element {
+  return (
+    <Document>
+      <Page size="A4" style={styles.page}>
+        <Text style={styles.title}>{title}</Text>
+        <Text style={styles.subtitle}>{subtitle}</Text>
+
+        {/* Kundinformation */}
+        {data.customer && (
+          <View style={styles.section}>
+            <Text style={styles.label}>Kund:</Text>
+            <Text style={styles.value}>
+              {data.customer.companyName || 'Okänd kund'}
+              {data.customer.orgNr && `\nOrg.nr: ${data.customer.orgNr}`}
+              {data.customer.contactPerson && `\nKontaktperson: ${data.customer.contactPerson}`}
+              {data.customer.email && `\nE-post: ${data.customer.email}`}
+              {data.customer.phone && `\nTelefon: ${data.customer.phone}`}
+            </Text>
+          </View>
+        )}
+
+        {/* Detaljer */}
+        {data.details && (
+          <View style={styles.section}>
+            <Text style={styles.label}>Detaljer:</Text>
+            {data.details.offerText && (
+              <Text style={styles.body}>{data.details.offerText}</Text>
+            )}
+            {data.details.totalSum && (
+              <Text style={styles.value}>
+                Summa: {data.details.totalSum} kr
+                {data.details.vatPercent && ` (Moms: ${data.details.vatPercent}%)`}
+              </Text>
+            )}
+          </View>
+        )}
+
+        {/* Förfallodatum för fakturor */}
+        {data.dueDate && (
+          <View style={styles.section}>
+            <Text style={styles.label}>Förfallodatum:</Text>
+            <Text style={styles.value}>{data.dueDate}</Text>
+          </View>
+        )}
+      </Page>
+    </Document>
+  );
+}
+
+// Huvudfunktion med överlagrade signaturer
 export async function buildDocument(
-  data: DocumentData,
-  variant: DocumentVariant
+  dataOrParams: LegacyDocumentData | BuildDocumentParams,
+  legacyVariant?: DocumentVariant
 ): Promise<Uint8Array> {
-  if (!data?.customerId) throw new Error('customerId is required');
-  if (variant !== 'offer' && variant !== 'orderConfirmation') {
-    throw new Error('variant must be "offer" or "orderConfirmation"');
+  let docElement: JSX.Element;
+  let type: DocumentType;
+  let data: any;
+
+  // Detektera om vi använder nya eller gamla signaturen
+  if ('type' in dataOrParams && typeof dataOrParams.type === 'string') {
+    // Ny signatur: { type, data }
+    type = dataOrParams.type as DocumentType;
+    data = dataOrParams.data;
+    console.log('[buildDocument] Using new signature with type:', type);
+  } else if (legacyVariant) {
+    // Gammal signatur: (data, variant)
+    type = legacyVariant as DocumentType;
+    data = dataOrParams as LegacyDocumentData;
+    console.log('[buildDocument] Using legacy signature with variant:', legacyVariant);
+  } else {
+    throw new Error('Invalid buildDocument parameters');
   }
 
-  console.log('[buildDocument] Building PDF with variant:', variant);
-  console.log('[buildDocument] Data keys:', Object.keys(data));
+  console.log('[buildDocument] Building PDF with type:', type);
+  console.log('[buildDocument] Data keys:', data ? Object.keys(data) : 'no data');
 
-  const textData: string | undefined = data?.data?.textData;
+  // Hantera olika dokumenttyper
+  switch (type) {
+    case 'order':
+      docElement = renderSimpleDocument(
+        'ORDERBEKRÄFTELSE',
+        data.number || 'Order',
+        data
+      );
+      break;
 
-  let docElement;
+    case 'invoice':
+      docElement = renderSimpleDocument(
+        'FAKTURA',
+        data.number || 'Faktura',
+        data
+      );
+      break;
 
-  // 🔹 FALL 1: GPT-flödet – vi har färdig offert-text
-  if (textData && textData.trim().length > 0) {
-    docElement = (
-      <Document>
-        <Page size="A4" style={styles.page}>
-          <Text style={styles.title}>{data.title ?? 'Offert'}</Text>
-          <Text style={styles.body}>{textData}</Text>
-        </Page>
-      </Document>
-    );
-  } else {
-    // 🔹 FALL 2: Bakåtkompatibelt – använd OfferPdf-mallen
-    docElement = (
-      <OfferPdf
-        variant={variant}
-        data={{
-          kundnamn: data?.data?.customerName ?? 'Kund',
-          pris: (data.amount ?? 0).toString(),
-          beskrivning: data?.data?.description ?? '',
-          offertId: data?.data?.offerNumber ?? '',
-          kundId: data.customerId,
-          datum:
-            data?.data?.orderDate ??
-            new Date().toISOString().slice(0, 10),
-          validTill: data?.data?.validity ?? undefined,
-          kontaktperson: data?.data?.contactPerson ?? undefined,
-          telefon: data?.data?.customerPhone ?? undefined,
-          email: data?.data?.customerEmail ?? undefined,
-        }}
-      />
-    );
+    case 'offer':
+    case 'orderConfirmation':
+      // Använd befintlig OfferPdf för offer och orderConfirmation
+      const textData: string | undefined = data?.textData || data?.data?.textData;
+
+      if (textData && textData.trim().length > 0) {
+        // GPT-flödet – vi har färdig offert-text
+        docElement = (
+          <Document>
+            <Page size="A4" style={styles.page}>
+              <Text style={styles.title}>{data.title ?? 'Offert'}</Text>
+              <Text style={styles.body}>{textData}</Text>
+            </Page>
+          </Document>
+        );
+      } else {
+        // Bakåtkompatibelt – använd OfferPdf-mallen
+        docElement = (
+          <OfferPdf
+            variant={type === 'orderConfirmation' ? 'orderConfirmation' : 'offer'}
+            data={{
+              kundnamn: data?.customer?.companyName || data?.data?.customerName || 'Kund',
+              pris: data?.details?.totalSum || (data.amount ?? 0).toString(),
+              beskrivning: data?.details?.offerText || data?.data?.description || '',
+              offertId: data?.number || data?.data?.offerNumber || '',
+              kundId: data?.customer_id || data?.customerId || '',
+              datum: data?.created_at?.slice(0, 10) || data?.data?.orderDate || new Date().toISOString().slice(0, 10),
+              validTill: data?.data?.validity ?? undefined,
+              kontaktperson: data?.customer?.contactPerson || data?.data?.contactPerson ?? undefined,
+              telefon: data?.customer?.phone || data?.data?.customerPhone ?? undefined,
+              email: data?.customer?.email || data?.data?.customerEmail ?? undefined,
+            }}
+          />
+        );
+      }
+      break;
+
+    default:
+      throw new Error(`Unknown document type: ${type}`);
   }
 
   // Skapa pdf-instans från dokumentet
   const instance = pdf(docElement);
 
-  // ✅ Rendera till PDF-sträng
+  // Rendera till PDF-sträng
   const pdfString = await instance.toString();
   console.log('[buildDocument] pdfString length:', pdfString.length);
 
-  // ✅ Gör om strängen till riktiga bytes
+  // Gör om strängen till riktiga bytes
   const encoder = new TextEncoder();
   const uint8 = encoder.encode(pdfString);
 

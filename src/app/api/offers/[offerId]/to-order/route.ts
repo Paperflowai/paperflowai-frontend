@@ -11,13 +11,21 @@ export async function POST(
 ) {
   try {
     const { offerId } = params;
-    
+
     if (!offerId) {
       return NextResponse.json({ error: "Offer ID required" }, { status: 400 });
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    
+
+    // Get current user
+    const { data: { user } } = await supabase.auth.getUser();
+    const userId = user?.id;
+
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     // Get offer details
     const { data: offer, error: fetchError } = await supabase
       .from('offers')
@@ -31,7 +39,7 @@ export async function POST(
 
     // Generate order number
     const currentYear = new Date().getFullYear();
-    
+
     // Get next order number for this year
     const { data: lastOrder } = await supabase
       .from('orders')
@@ -54,6 +62,11 @@ export async function POST(
       }
     }
 
+    // Calculate totals from offer data
+    const totalSum = parseFloat(offer.data?.details?.totalSum || '0');
+    const vatPercent = parseFloat(offer.data?.details?.vatPercent || '0');
+    const vatTotal = totalSum * (vatPercent / 100);
+
     // Prepare document data for order
     const documentData = {
       customer: offer.data.customer,
@@ -66,9 +79,10 @@ export async function POST(
 
     // Upload to Supabase Storage
     const fileName = `${currentYear}/${offer.customer_id}/${orderNumber}.pdf`;
+    const storagePath = `orders/${fileName}`;
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('documents')
-      .upload(`orders/${fileName}`, pdfBuffer, {
+      .upload(storagePath, pdfBuffer, {
         contentType: 'application/pdf',
         upsert: true
       });
@@ -81,18 +95,23 @@ export async function POST(
     // Get public URL
     const { data: urlData } = supabase.storage
       .from('documents')
-      .getPublicUrl(`orders/${fileName}`);
+      .getPublicUrl(storagePath);
 
     // Create order record
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert({
+        user_id: userId,
         customer_id: offer.customer_id,
+        source_offer_id: offerId,
         number: orderNumber,
         status: 'created',
         data: documentData,
         pdf_url: urlData.publicUrl,
-        source_offer_id: offerId,
+        storage_path: storagePath,
+        bucket_name: 'documents',
+        total: totalSum,
+        vat_total: vatTotal,
       })
       .select()
       .single();

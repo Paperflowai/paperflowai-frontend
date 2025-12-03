@@ -1,287 +1,315 @@
-// Gemensam utility för att extrahera fält från offerttext
-// Återanvänder logik från kundkortet
+/**
+ * Extract customer and offer information from PDF text
+ * Used by /api/offers/parse to auto-fill customer card
+ */
 
 export interface ExtractedOfferFields {
-  // Kundinformation
+  // Customer information
   companyName: string;
+  orgNr: string;
   contactPerson: string;
-  email: string;
   phone: string;
+  email: string;
   address: string;
   zip: string;
   city: string;
-  orgNr: string;
   country: string;
-  
-  // Offertinformation
-  date: string;
+
+  // Offer metadata
   offerNumber: string;
+  date: string;
   validity: string;
-  
-  // Ekonomi
+
+  // Financial information
   total: string;
   vat: string;
   vatAmount: string;
-  
-  // Övrigt
-  notes: string;
-  offerText: string;
-  
-  // Radartiklar (om de finns)
+
+  // Line items (optional)
   items?: Array<{
     name: string;
     hours?: string;
     pricePerHour?: string;
     total?: string;
   }>;
+
+  // Additional notes
+  notes: string;
 }
 
-// Hjälpare för parser
-function normalize(s: string): string {
-  return s
-    .replace(/\u2011|\u2013|\u2014/g, "-")
-    .replace(/\u00A0/g, " ")
-    .replace(/[^\S\r\n]+/g, " ");
+/**
+ * Normalize text by replacing special characters and whitespace
+ */
+function normalize(text: string): string {
+  return text
+    .replace(/\u2011|\u2013|\u2014/g, '-') // Em/en dashes -> hyphen
+    .replace(/\u00A0/g, ' ') // Non-breaking space -> space
+    .replace(/[^\S\r\n]+/g, ' '); // Multiple spaces -> single space
 }
 
+/**
+ * Format Swedish postal code (12345 -> 123 45)
+ */
 function formatZip(zip: string): string {
-  const only = (zip || "").replace(/\D/g, "");
-  if (only.length === 5) return `${only.slice(0, 3)} ${only.slice(3)}`;
-  return (zip || "").trim();
+  const digitsOnly = (zip || '').replace(/\D/g, '');
+  if (digitsOnly.length === 5) {
+    return `${digitsOnly.slice(0, 3)} ${digitsOnly.slice(3)}`;
+  }
+  return (zip || '').trim();
 }
 
-// Extrahera datum och konvertera till ISO-format
-function parseDate(dateStr: string): string {
-  if (!dateStr) return "";
-  
-  // Om redan ISO-format
-  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    return dateStr;
-  }
-  
-  // Försök parsa svenska datumformat
-  const formats = [
-    /(\d{2})[-/.](\d{2})[-/.](\d{4})/, // DD-MM-YYYY
-    /(\d{4})[-/.](\d{2})[-/.](\d{2})/, // YYYY-MM-DD
-    /(\d{2})[-/.](\d{2})[-/.](\d{2})/, // DD-MM-YY
-  ];
-  
-  for (const format of formats) {
-    const match = dateStr.match(format);
-    if (match) {
-      let year, month, day;
-      
-      if (format === formats[0]) { // DD-MM-YYYY
-        [, day, month, year] = match;
-      } else if (format === formats[1]) { // YYYY-MM-DD
-        [, year, month, day] = match;
-      } else { // DD-MM-YY
-        [, day, month, year] = match;
-        year = parseInt(year) < 50 ? `20${year}` : `19${year}`;
+/**
+ * Safe regex extraction - returns matched group or empty string
+ */
+function safeExtract(text: string, regex: RegExp): string {
+  const match = text.match(regex);
+  return match && match[1] ? String(match[1]).trim() : '';
+}
+
+/**
+ * Extract customer and offer fields from PDF text
+ */
+export function extractOfferFields(rawText: string): ExtractedOfferFields {
+  const text = normalize(rawText || '');
+
+  // ============ CUSTOMER INFORMATION ============
+
+  // Company name
+  const companyName =
+    safeExtract(text, /(?:Kund|Beställare|Företag|Kundnamn|Till)\s*:?\s*(.+)/i) ||
+    guessCompanyName(text);
+
+  // Organization number
+  const orgNr =
+    safeExtract(text, /(?:Org(?:\.|\s)?(?:nr|nummer)|Organisations(?:nummer|nr))\s*:?\s*([0-9\- ]{6,})/i) ||
+    safeExtract(text, /(?:VAT|Momsregnr|VAT(?:\s*nr)?)\s*:?\s*([A-Za-z0-9\- ]{6,})/i);
+
+  // Contact person
+  const contactPerson = safeExtract(text, /(?:Kontaktperson|Kontakt|Attn)\s*:?\s*([^\n]+)/i);
+
+  // Phone
+  const phone = safeExtract(text, /(?:Telefon|Tel\.?|Tel|Mobil)\s*:?\s*([\d +\-()]{5,})/i);
+
+  // Email
+  const email = safeExtract(text, /(?:E-?post|E ?post|E-mail|Mail)\s*:?\s*([^\s,;<>]+@[^\s,;<>]+)/i);
+
+  // Address parsing
+  const addressRaw = safeExtract(text, /(?:Adress|Gatuadress|Besöksadress|Postadress)\s*:?\s*(.+)/i);
+  const postalLine = extractPostalLine(text);
+
+  const { street, zip, city } = parseAddress(addressRaw, postalLine);
+
+  // Country
+  const country = safeExtract(text, /(?:Land|Country)\s*:?\s*([^\n]+)/i) || 'Sverige';
+
+  // ============ OFFER METADATA ============
+
+  // Offer number
+  const offerNumber =
+    safeExtract(text, /(?:Offert(?:nummer|\s*nr\.?)?|Offert-Nr\.?|Offertnr)\s*:?\s*([A-Za-z0-9\-_/]+)/i) ||
+    safeExtract(text, /(?:Ref(?:erens)?|Ref\.?)\s*:?\s*([A-Za-z0-9\-_/]+)/i);
+
+  // Date
+  const date = safeExtract(
+    text,
+    /(?:Datum|Offertdatum|Date)\s*:?\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{2}[-/.][0-9]{2}[-/.][0-9]{2,4})/i
+  );
+
+  // Validity period
+  const validity =
+    safeExtract(text, /(?:Giltighet|Giltig(?:\s*till)?|Valid(?:ity)?)\s*:?\s*([^\n]+)/i) ||
+    safeExtract(text, /([0-9]+)\s*(?:dagar|dagars)/i);
+
+  // ============ FINANCIAL INFORMATION ============
+
+  // Total/Net amount (before VAT)
+  const total =
+    safeExtract(text, /(?:Totalt|Total|Summa|Netto|Subtotal)\s*:?\s*([0-9\s,\.]+(?:\s*kr)?)/i) ||
+    safeExtract(text, /(?:Exkl\.?\s*moms|Utan\s*moms)\s*:?\s*([0-9\s,\.]+)/i);
+
+  // VAT percentage
+  const vat =
+    safeExtract(text, /(?:Moms|VAT|Tax)\s*:?\s*([0-9]+)\s*%/i) ||
+    safeExtract(text, /([0-9]+)\s*%\s*(?:moms|vat)/i) ||
+    '25'; // Default Swedish VAT
+
+  // VAT amount
+  const vatAmount =
+    safeExtract(text, /(?:Moms(?:belopp)?|VAT\s*(?:amount)?)\s*:?\s*([0-9\s,\.]+)/i) ||
+    safeExtract(text, /(?:Inkl\.?\s*moms|Med\s*moms)\s*:?\s*([0-9\s,\.]+)/i);
+
+  // ============ LINE ITEMS (OPTIONAL) ============
+
+  const items = extractLineItems(text);
+
+  // ============ NOTES ============
+
+  const notes =
+    safeExtract(text, /(?:Anteckningar|Notes|Kommentarer|Övrigt)\s*:?\s*([^\n]+)/i) ||
+    safeExtract(text, /(?:Betalningsvillkor|Payment\s*terms)\s*:?\s*([^\n]+)/i);
+
+  const result = {
+    companyName,
+    orgNr,
+    contactPerson,
+    phone,
+    email,
+    address: street,
+    zip: zip ? formatZip(zip) : '',
+    city,
+    country,
+    offerNumber,
+    date,
+    validity,
+    total,
+    vat,
+    vatAmount,
+    items,
+    notes,
+  };
+
+  console.log("[extractOfferFields] result:", result);
+
+  return result;
+}
+
+/**
+ * Extract postal line (zip + city) from text
+ */
+function extractPostalLine(text: string): string {
+  // Try explicit postal line
+  const explicit = text.match(
+    /(?:Postnr(?:\.|)|Postnummer|Postadress)\s*:?\s*([0-9]{3}\s?[0-9]{2}\s+[^\n]+)/i
+  );
+  if (explicit && explicit[1]) return explicit[1];
+
+  // Try general pattern
+  const general = text.match(/([0-9]{3}\s?[0-9]{2})\s+([A-Za-zÅÄÖåäö\- ]{2,})/);
+  if (general && general[0]) return general[0];
+
+  return '';
+}
+
+/**
+ * Parse address into street, zip, and city components
+ */
+function parseAddress(
+  addressRaw: string,
+  postalLine: string
+): { street: string; zip: string; city: string } {
+  let street = addressRaw || '';
+  let zip = '';
+  let city = '';
+
+  // If address contains comma-separated parts
+  if (addressRaw) {
+    const parts = addressRaw.split(',').map(s => s.trim()).filter(Boolean);
+
+    if (parts.length >= 2) {
+      street = parts[0];
+      const tail = parts.slice(1).join(', ');
+
+      // Try to extract zip + city from tail
+      const match = tail.match(/(\d{3}\s?[0-9]{2})\s+(.+)/);
+      if (match && match[1] && match[2]) {
+        zip = match[1];
+        city = String(match[2]).trim();
+      } else if (!city) {
+        city = tail;
       }
-      
-      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
     }
   }
-  
-  return dateStr; // Returnera som den är om vi inte kan parsa
+
+  // If zip/city not found in address, try postal line
+  if ((!zip || !city) && postalLine) {
+    const match = postalLine.match(/(\d{3}\s?[0-9]{2})\s+(.+)/);
+    if (match && match[1] && match[2]) {
+      zip = match[1];
+      city = String(match[2]).trim();
+    }
+  }
+
+  return { street, zip, city };
 }
 
-// Extrahera giltighet i dagar
-function parseValidity(validityStr: string): string {
-  if (!validityStr) return "";
-  
-  const match = validityStr.match(/(\d+)\s*dagar?/i);
-  return match ? match[1] : "";
+/**
+ * Guess company name from first lines of document
+ */
+function guessCompanyName(text: string): string {
+  const firstLines = text
+    .split('\n')
+    .slice(0, 12)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  // Find where offer/invoice/order header starts
+  const stopIdx = firstLines.findIndex(l => /offert|order|faktura|invoice/i.test(l));
+  const scope = stopIdx > 0 ? firstLines.slice(0, stopIdx) : firstLines;
+
+  // Find a line that looks like a company name
+  const candidate = scope.find(
+    l =>
+      /[A-Za-zÅÄÖåäö]/.test(l) &&
+      l.split(' ').length >= 2 &&
+      l.length <= 60 &&
+      !/^\d+$/.test(l) // Not just numbers
+  );
+
+  if (candidate) {
+    // Remove common company prefixes if they appear at start
+    return candidate.replace(/^(AB|HB|KB)\s+/i, '').trim();
+  }
+
+  return '';
 }
 
-// Extrahera totalsumma och moms
-function parseAmounts(text: string): { total: string; vat: string; vatAmount: string } {
-  const norm = normalize(text);
-  
-  // Totalsumma
-  const totalMatch = norm.match(/(?:Totalt|Total|Summa)\s*:?\s*([0-9\s,.\-]+)/i);
-  const total = totalMatch ? totalMatch[1].replace(/[^\d,.-]/g, '').replace(',', '.') : "";
-  
-  // Moms procent
-  const vatMatch = norm.match(/(?:Moms|VAT)\s*\(?(\d+)%?\)?\s*:?\s*([0-9\s,.\-]+)/i);
-  const vat = vatMatch ? vatMatch[1] : "";
-  const vatAmount = vatMatch ? vatMatch[2].replace(/[^\d,.-]/g, '').replace(',', '.') : "";
-  
-  return { total, vat, vatAmount };
-}
+/**
+ * Extract line items from table-like structures in text
+ * This is a simple implementation - can be enhanced for specific formats
+ */
+function extractLineItems(text: string): Array<{
+  name: string;
+  hours?: string;
+  pricePerHour?: string;
+  total?: string;
+}> {
+  const items: Array<{
+    name: string;
+    hours?: string;
+    pricePerHour?: string;
+    total?: string;
+  }> = [];
 
-// Extrahera radartiklar från tabell
-function parseItems(text: string): Array<{ name: string; hours?: string; pricePerHour?: string; total?: string }> {
+  // Look for table patterns (very basic - enhance as needed)
   const lines = text.split('\n');
-  const items: Array<{ name: string; hours?: string; pricePerHour?: string; total?: string }> = [];
-  
   let inTable = false;
-  let headerFound = false;
-  
+
   for (const line of lines) {
-    const trimmed = line.trim();
-    
-    // Hitta tabellhuvud
-    if (trimmed.includes('Tjänst') && trimmed.includes('Timmar') && trimmed.includes('Pris')) {
+    // Detect table start
+    if (/(?:Beskrivning|Description|Tjänst|Service|Post)/i.test(line)) {
       inTable = true;
-      headerFound = true;
       continue;
     }
-    
-    // Sluta vid nästa sektion
-    if (headerFound && (trimmed.includes('Totalt') || trimmed.includes('Summa') || trimmed.includes('📄'))) {
+
+    // Detect table end
+    if (inTable && /(?:Summa|Total|Moms|VAT)/i.test(line)) {
+      inTable = false;
       break;
     }
-    
-    // Parsa radartiklar
-    if (inTable && headerFound && trimmed && !trimmed.includes('Tjänst')) {
-      // Försök extrahera kolumner (separerade av flera mellanslag eller tab)
-      const columns = trimmed.split(/\s{2,}|\t/).filter(col => col.trim());
-      
-      if (columns.length >= 2) {
-        const item = {
-          name: columns[0] || "",
-          hours: columns[1] || "",
-          pricePerHour: columns[2] || "",
-          total: columns[3] || ""
-        };
-        items.push(item);
+
+    // Extract items (simple pattern: text followed by numbers)
+    if (inTable) {
+      const match = line.match(/^(.+?)\s+([0-9,\.]+)\s+([0-9,\. ]+)\s+([0-9,\. ]+)/);
+      if (match) {
+        items.push({
+          name: match[1].trim(),
+          hours: match[2],
+          pricePerHour: match[3],
+          total: match[4],
+        });
       }
     }
   }
-  
+
   return items;
 }
-
-export function extractOfferFields(offerText: string): ExtractedOfferFields {
-  try {
-    const norm = normalize(offerText || "");
-    
-    const safeGet = (regex: RegExp): string => {
-      const m = norm.match(regex);
-      return (m && m[1] ? String(m[1]).trim() : "");
-    };
-
-    // Extrahera grundläggande fält
-    const companyName = safeGet(/(?:Kund|Beställare|Företag|Kundnamn)\s*:?\s*(.+)/i);
-    const rawDate = safeGet(/(?:Datum|Offertdatum)\s*:?\s*([0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9]{2}[-/.][0-9]{2}[-/.][0-9]{2,4})/i);
-    const date = parseDate(rawDate);
-    
-    const offerNumber = safeGet(/(?:Offert(?:nummer|\s*nr\.?)?|Offert-Nr\.?)\s*:?\s*([A-Za-z0-9\-_/]+)/i);
-    
-    const orgNr = safeGet(/(?:Org(?:\.|\s)?(?:nr|nummer)|Organisations(?:nummer|nr))\s*:?\s*([0-9\- ]{6,})/i) ||
-                  safeGet(/(?:VAT|Momsregnr|VAT(?:\s*nr)?)\s*:?\s*([A-Za-z0-9\- ]{6,})/i);
-
-    const address = safeGet(/(?:Adress|Gatuadress|Besöksadress)\s*:?\s*(.+)/i) ||
-                   safeGet(/(?:Postadress)\s*:?\s*(.+)/i);
-
-    const postrad = (() => {
-      const a = norm.match(/(?:Postnr(?:\.|)|Postnummer|Postadress)\s*:?\s*([0-9]{3}\s?[0-9]{2}\s+[^\n]+)/i);
-      if (a && a[1]) return a[1];
-      const b = norm.match(/([0-9]{3}\s?[0-9]{2})\s+([A-Za-zÅÄÖåäö\- ]{2,})/);
-      if (b && b[0]) return b[0];
-      return "";
-    })();
-
-    const phone = safeGet(/(?:Telefon|Tel\.?|Tel)\s*:?\s*([\d +\-()]{5,})/i);
-    const email = safeGet(/(?:E-?post|E ?post|E-mail|Mail)\s*:?\s*([^\s,;<>]+@[^\s,;<>]+)/i);
-    const contactPerson = safeGet(/(?:Kontaktperson|Kontakt)\s*:?\s*([^\n]+)/i);
-    const country = safeGet(/(?:Land|Country)\s*:?\s*([^\n]+)/i) || "Sverige";
-
-    // Parsa adress
-    let street = address || "";
-    let zip = "";
-    let city = "";
-
-    if (address) {
-      const parts = address.split(",").map((s) => s.trim()).filter(Boolean);
-      if (parts.length >= 2) {
-        street = parts[0];
-        const lastPart = parts[parts.length - 1];
-        const zipMatch = lastPart.match(/([0-9]{3}\s?[0-9]{2})\s*(.+)/);
-        if (zipMatch) {
-          zip = formatZip(zipMatch[1]);
-          city = zipMatch[2];
-        } else {
-          city = lastPart;
-        }
-      }
-    }
-
-    if (postrad) {
-      const zipMatch = postrad.match(/([0-9]{3}\s?[0-9]{2})\s*(.+)/);
-      if (zipMatch) {
-        zip = formatZip(zipMatch[1]);
-        city = zipMatch[2];
-      }
-    }
-
-    // Extrahera giltighet
-    const validityText = safeGet(/(?:Giltig|Giltighet)\s*:?\s*([^\n]+)/i);
-    const validity = parseValidity(validityText);
-
-    // Extrahera ekonomiska uppgifter
-    const { total, vat, vatAmount } = parseAmounts(norm);
-
-    // Extrahera radartiklar
-    const items = parseItems(norm);
-
-    // Samla anteckningar (GDPR, betalvillkor, etc.)
-    const notesParts = [];
-    const gdprMatch = norm.match(/(?:GDPR|Dataskyddsförordningen)[^\n]*(?:\n[^\n]*)*/i);
-    if (gdprMatch) notesParts.push(gdprMatch[0]);
-    
-    const paymentMatch = norm.match(/(?:Betalvillkor|Betalning)[^\n]*(?:\n[^\n]*)*/i);
-    if (paymentMatch) notesParts.push(paymentMatch[0]);
-    
-    const rotMatch = norm.match(/(?:ROT|RUT)[^\n]*(?:\n[^\n]*)*/i);
-    if (rotMatch) notesParts.push(rotMatch[0]);
-
-    const notes = notesParts.join('\n\n');
-
-    return {
-      companyName,
-      contactPerson,
-      email,
-      phone,
-      address: street,
-      zip,
-      city,
-      orgNr,
-      country,
-      date,
-      offerNumber,
-      validity,
-      total,
-      vat,
-      vatAmount,
-      notes,
-      offerText: offerText,
-      items: items.length > 0 ? items : undefined
-    };
-
-  } catch (error) {
-    console.error('Error extracting offer fields:', error);
-    return {
-      companyName: "",
-      contactPerson: "",
-      email: "",
-      phone: "",
-      address: "",
-      zip: "",
-      city: "",
-      orgNr: "",
-      country: "Sverige",
-      date: "",
-      offerNumber: "",
-      validity: "",
-      total: "",
-      vat: "",
-      vatAmount: "",
-      notes: "",
-      offerText: offerText
-    };
-  }
-}
-

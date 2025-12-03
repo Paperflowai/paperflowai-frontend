@@ -14,6 +14,14 @@ export async function POST(req: NextRequest, context: any) {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Get current user
+    const { data: { user } } = await supabase.auth.getUser();
+    const userId = user?.id;
+
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     // Hämta fakturan
     const { data: invoice, error: fetchError } = await supabase
       .from("invoices")
@@ -23,6 +31,11 @@ export async function POST(req: NextRequest, context: any) {
 
     if (fetchError || !invoice) {
       return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+    }
+
+    // Verify user owns this invoice
+    if (invoice.user_id !== userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
     // Hämta kundens e-post
@@ -36,9 +49,15 @@ export async function POST(req: NextRequest, context: any) {
       return NextResponse.json({ error: "Customer email not found" }, { status: 400 });
     }
 
+    // Format invoice total
+    const totalFormatted = new Intl.NumberFormat('sv-SE', {
+      style: 'currency',
+      currency: 'SEK'
+    }).format(invoice.total);
+
     // Skicka e-post via befintligt /api/sendEmail
-    const subject = `Här kommer din faktura från oss - ${invoice.number}`;
-    const text = `Hej ${customer.contact_person || "kund"},\n\nHär kommer din faktura ${invoice.number}.\nBelopp: ${invoice.total} kr\nFörfallodatum: ${invoice.due_date}\n\nLänk: ${invoice.pdf_url}`;
+    const subject = `Faktura ${invoice.number} från ${customer.company_name || 'oss'}`;
+    const text = `Hej ${customer.contact_person || customer.company_name || "kund"},\n\nHär kommer din faktura ${invoice.number}.\n\nBelopp: ${totalFormatted}\nFörfallodatum: ${invoice.due_date}\n\nDu hittar fakturan här: ${invoice.pdf_url}\n\nMed vänliga hälsningar`;
 
     const emailResponse = await fetch(`${req.nextUrl.origin}/api/sendEmail`, {
       method: "POST",
@@ -51,13 +70,19 @@ export async function POST(req: NextRequest, context: any) {
     });
 
     if (!emailResponse.ok) {
+      const emailError = await emailResponse.text();
+      console.error("Email send error:", emailError);
       return NextResponse.json({ error: "Failed to send email" }, { status: 500 });
     }
 
-    // Uppdatera status
+    // Uppdatera status och sent_at
+    const now = new Date().toISOString();
     const { data: updatedInvoice, error: updateError } = await supabase
       .from("invoices")
-      .update({ status: "sent" })
+      .update({
+        status: "sent",
+        sent_at: now,
+      })
       .eq("id", invoiceId)
       .select()
       .single();

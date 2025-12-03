@@ -11,13 +11,21 @@ export async function POST(
 ) {
   try {
     const { orderId } = params;
-    
+
     if (!orderId) {
       return NextResponse.json({ error: "Order ID required" }, { status: 400 });
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    
+
+    // Get current user
+    const { data: { user } } = await supabase.auth.getUser();
+    const userId = user?.id;
+
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     // Get order details
     const { data: order, error: fetchError } = await supabase
       .from('orders')
@@ -31,7 +39,7 @@ export async function POST(
 
     // Generate invoice number
     const currentYear = new Date().getFullYear();
-    
+
     // Get next invoice number for this year
     const { data: lastInvoice } = await supabase
       .from('invoices')
@@ -55,8 +63,8 @@ export async function POST(
     }
 
     // Calculate totals and VAT
-    const totalSum = parseFloat(order.data.details.totalSum) || 0;
-    const vatPercent = parseFloat(order.data.details.vatPercent) || 0;
+    const totalSum = parseFloat(order.data?.details?.totalSum || '0');
+    const vatPercent = parseFloat(order.data?.details?.vatPercent || '0');
     const vatTotal = totalSum * (vatPercent / 100);
     const netTotal = totalSum + vatTotal;
 
@@ -71,8 +79,8 @@ export async function POST(
         totalSum: totalSum.toString(),
         vatPercent: order.data.details.vatPercent,
         vatAmount: vatTotal.toString(),
-        validityDays: order.data.details.validityDays,
-        offerText: order.data.details.offerText,
+        validityDays: order.data.details?.validityDays,
+        offerText: order.data.details?.offerText,
       },
       number: invoiceNumber,
       dueDate: dueDate.toISOString().split('T')[0],
@@ -83,9 +91,10 @@ export async function POST(
 
     // Upload to Supabase Storage
     const fileName = `${currentYear}/${order.customer_id}/${invoiceNumber}.pdf`;
+    const storagePath = `invoices/${fileName}`;
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('documents')
-      .upload(`invoices/${fileName}`, pdfBuffer, {
+      .upload(storagePath, pdfBuffer, {
         contentType: 'application/pdf',
         upsert: true
       });
@@ -98,21 +107,25 @@ export async function POST(
     // Get public URL
     const { data: urlData } = supabase.storage
       .from('documents')
-      .getPublicUrl(`invoices/${fileName}`);
+      .getPublicUrl(storagePath);
 
     // Create invoice record
     const { data: invoice, error: invoiceError } = await supabase
       .from('invoices')
       .insert({
+        user_id: userId,
         customer_id: order.customer_id,
+        source_order_id: orderId,
         number: invoiceNumber,
         status: 'created',
         data: documentData,
         pdf_url: urlData.publicUrl,
-        source_order_id: orderId,
+        storage_path: storagePath,
+        bucket_name: 'documents',
         due_date: dueDate.toISOString().split('T')[0],
         total: netTotal,
         vat_total: vatTotal,
+        exported_to_bookkeeping: false,
       })
       .select()
       .single();
