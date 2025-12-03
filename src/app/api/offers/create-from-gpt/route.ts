@@ -137,40 +137,25 @@ export async function POST(req: Request) {
       console.log("[create-from-gpt] Updating existing customer:", customerId);
     }
 
-    // 4) Upsert i public.customers (använd både gamla och nya kolumnnamn för kompatibilitet)
-    const customerData = {
-      // ID på kunden (UUID)
+    // 4) Upsert i public.customers (gamla strukturen)
+    const customerRow = {
       id: customerId,
-
-      // Namn & orgnr – vi använder både gamla och nya kolumnnamn
-      name: companyName,             // om vi har kolumnen "name"
-      company_name: companyName,     // om vi har kolumnen "company_name"
-      orgnr: orgNr,
-      org_nr: orgNr,
-
-      // Kontaktperson
-      contact_person: contactPerson ?? null,
-
-      // Kontaktuppgifter
+      name: companyName ?? "Ny kund",   // OBS: name, inte company_name
+      orgnr: orgNr ?? null,            // OBS: orgnr, inte org_nr
       email: email ?? null,
       phone: phone ?? null,
       address: address ?? null,
       zip: zip ?? null,
       city: city ?? null,
       country: country ?? "Sverige",
-
-      // Offert-info kopplad till kunden
-      customer_number: customerNumber ?? null,
-      contact_date: contactDate ?? null,
-
       updated_at: new Date().toISOString(),
     };
 
-    console.log("[create-from-gpt] customerData:", customerData);
+    console.log("[create-from-gpt] customerRow:", customerRow);
 
     const { error: customerError } = await supabaseAdmin
       .from("customers")
-      .upsert(customerData, { onConflict: "id" });
+      .upsert(customerRow, { onConflict: "id" });
 
     if (customerError) {
       console.error("[create-from-gpt] Customer upsert error:", customerError);
@@ -180,7 +165,6 @@ export async function POST(req: Request) {
     console.log("[create-from-gpt] ✅ Customer data saved:", {
       customerId,
       companyName,
-      contactPerson,
       email,
     });
 
