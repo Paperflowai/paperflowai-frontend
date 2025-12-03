@@ -181,9 +181,10 @@ export async function buildDocument(
               kundId: data?.customer_id || data?.customerId || '',
               datum: data?.created_at?.slice(0, 10) || data?.data?.orderDate || new Date().toISOString().slice(0, 10),
               validTill: data?.data?.validity ?? undefined,
-              kontaktperson: data?.customer?.contactPerson || data?.data?.contactPerson ?? undefined,
-              telefon: data?.customer?.phone || data?.data?.customerPhone ?? undefined,
-              email: data?.customer?.email || data?.data?.customerEmail ?? undefined,
+              kontaktperson: data?.customer?.contactPerson || data?.data?.contactPerson || undefined,
+telefon: data?.customer?.phone || data?.data?.customerPhone || undefined,
+email: data?.customer?.email || data?.data?.customerEmail || undefined,
+
             }}
           />
         );
