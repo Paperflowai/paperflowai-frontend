@@ -35,7 +35,7 @@ export async function POST(_req: Request, context: any) {
     // Hämta kund (valfritt)
     const { data: customer } = await supabase
       .from("customers")
-      .select("company_name, contact_person")
+      .select("name AS company_name, contact_person")
       .eq("id", invoice.customer_id)
       .maybeSingle();
 

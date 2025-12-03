@@ -34,7 +34,7 @@ function pickCustomerFields(text: string) {
   const email = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
   if (email) out.email = email;
   const org = text.match(/\b\d{6}-\d{4}\b|\b\d{10}\b/)?.[0];
-  if (org) out.org_nr = org;
+  if (org) out.orgnr = org;
   const phone = text.match(/(\+46|0)\s?\d[\d\s\-]{6,}/)?.[0];
   if (phone) out.phone = phone.replace(/\s+/g, " ").trim();
   const mZipCity = text.match(/\b(\d{3}\s?\d{2})\s+([A-Za-zÅÄÖåäö\- ]{2,})\b/);
@@ -82,7 +82,7 @@ async function updateCustomerBestEffort(
     adress: ["address","adress","gata","street"],
     postnummer: ["postal_code","postnummer","postnr","zip"],
     ort: ["city","ort","stad"],
-    org_nr: ["org_nr","orgnr","organisationsnummer","organisation_nr"],
+    orgnr: ["orgnr","org_nr","organisationsnummer","organisation_nr"],
     customer_number: ["customer_number","kundnummer","kundnr","offertnummer_ref"],
   };
 

@@ -31,7 +31,7 @@ export async function POST(
     // Get customer details for email
     const { data: customer } = await supabase
       .from('customers')
-      .select('email, company_name, contact_person')
+      .select('email, name AS company_name, contact_person')
       .eq('id', offer.customer_id)
       .single();
 
