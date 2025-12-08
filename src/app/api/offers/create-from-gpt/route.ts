@@ -2,7 +2,51 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import crypto from "crypto";
 import { buildDocument } from "@/lib/pdf/buildDocument";
-import { extractOfferFields } from "@/utils/extractOfferFields";
+// ----------------------------------------------------
+// HJÄLPFUNKTIONER – Förhindrar att datum hamnar som företagsnamn
+// ----------------------------------------------------
+
+const monthNames = [
+  "januari", "februari", "mars", "april", "maj", "juni",
+  "juli", "augusti", "september", "oktober", "november", "december",
+];
+
+function looksLikeDate(text: string): boolean {
+  if (!text) return false;
+  const t = text.trim().toLowerCase();
+
+  // Format: 2026-01-03
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return true;
+
+  // Format: 3 januari 2026
+  if (/^\d{1,2}\s+[a-zåäö]+\.?\s+\d{4}$/.test(t)) return true;
+
+  // Om texten innehåller en månad + år → troligt datum
+  if (monthNames.some((m) => t.includes(m)) && /\d{4}/.test(t)) {
+    return true;
+  }
+
+  return false;
+}
+
+function cleanText(value: any): string {
+  if (value === null || value === undefined) return "";
+  const t = String(value).trim();
+  if (!t) return "";
+  if (looksLikeDate(t)) return ""; // ⬅️ Tar bort datum helt
+  return t;
+}
+
+// Hämta företagsnamn (nu rensat från datum)
+function getCompanyName(kund: any, safeJson: any): string {
+  return (
+    cleanText(kund?.namn) ||
+    cleanText(kund?.name) ||
+    cleanText(kund?.foretag) ||
+    cleanText(safeJson?.kundnamn) ||
+    "Ny kund"
+  );
+}
 
 export const runtime = "nodejs";
 
@@ -14,33 +58,6 @@ type GPTOfferBody = {
 
 function bad(msg: string, code = 400) {
   return NextResponse.json({ ok: false, error: msg }, { status: code });
-}
-
-// Försök plocka ut kundnamn ur offerttexten om jsonData inte innehåller namn
-function extractCustomerNameFromText(text: string): string | null {
-  if (!text) return null;
-
-  // Försök hitta rad efter "Till:"
-  const tillIndex = text.indexOf("Till:");
-  if (tillIndex !== -1) {
-    const afterTill = text.slice(tillIndex + "Till:".length);
-    const lines = afterTill.split("\n").map(l => l.trim()).filter(Boolean);
-    if (lines.length > 0) {
-      // t.ex. "Testkunden GPT AB"
-      return lines[0];
-    }
-  }
-
-  // Annars: leta efter en rad som slutar på AB / HB / KB / Aktiebolag
-  const lines = text.split("\n").map(l => l.trim());
-  for (const line of lines) {
-    if (!line) continue;
-    if (/(AB|HB|KB|Aktiebolag)\b/.test(line)) {
-      return line;
-    }
-  }
-
-  return null;
 }
 
 export async function POST(req: Request) {
@@ -55,80 +72,63 @@ export async function POST(req: Request) {
     const safeJson = jsonData || {};
     const kund = safeJson.kund || safeJson.customer || {};
 
-    // ============ EXTRAHERA KUNDDATA ============
-    // 1) Från textData med extractOfferFields
-    const extracted = extractOfferFields(textData || "");
-    console.log("[create-from-gpt] extracted:", extracted);
+    const companyName = getCompanyName(kund, safeJson);
 
-    // 2) Merga jsonData.kund och extractOfferFields (jsonData prioriteras)
-    const companyName =
-      kund.namn ||
-      kund.name ||
-      kund.foretag ||
-      safeJson.kundnamn ||
-      extracted.companyName ||
-      extractCustomerNameFromText(textData || "") ||
-      "Ny kund";
 
     const contactPerson =
-      kund.kontaktperson ||
-      kund.contactPerson ||
-      extracted.contactPerson ||
+      kund.kontaktperson ??
+      kund.contactperson ??
+      kund.contactPerson ??
       null;
 
     const email =
-      kund.epost ||
-      kund.email ||
-      extracted.email ||
+      kund.epost ??
+      kund.email ??
       null;
 
     const phone =
-      kund.telefon ||
-      kund.phone ||
-      extracted.phone ||
+      kund.telefon ??
+      kund.phone ??
       null;
 
     const address =
-      kund.adress ||
-      kund.address ||
-      extracted.address ||
+      kund.adress ??
+      kund.address ??
       null;
 
     const zip =
-      kund.postnummer ||
-      kund.zip ||
-      extracted.zip ||
+      kund.postnummer ??
+      kund.postnr ??
+      kund.zip ??
       null;
 
     const city =
-      kund.ort ||
-      kund.city ||
-      extracted.city ||
+      kund.ort ??
+      kund.city ??
+      kund.stad ??
       null;
 
     const orgNr =
-      kund.orgnr ||
-      kund.org_nr ||
-      extracted.orgNr ||
+      kund.orgnr ??
+      kund.org_nr ??
       null;
 
     const country =
-      kund.land ||
-      kund.country ||
-      extracted.country ||
+      kund.land ??
+      kund.country ??
       "Sverige";
 
     const customerNumber =
-      extracted.offerNumber ||
-      safeJson.offertnummer ||
+      safeJson.offert?.offertnummer ??
+      safeJson.offertnummer ??
       null;
 
     const contactDate =
-      extracted.date ||
-      safeJson.datum ||
+      safeJson.offert?.datum ??
+      safeJson.datum ??
       null;
 
-    // 3) Sätt kund-ID
+    // Sätt kund-ID
     if (!customerId) {
       // Ny kund → skapa id
       customerId = crypto.randomUUID();
@@ -140,14 +140,29 @@ export async function POST(req: Request) {
     // 4) Upsert i public.customers (gamla strukturen)
     const customerRow = {
       id: customerId,
-      name: companyName ?? "Ny kund",   // OBS: name, inte company_name
-      orgnr: orgNr ?? null,            // OBS: orgnr, inte org_nr
+      // Företagsnamn
+      name: cleanText(companyName) || "Ny kund",
+      company_name: cleanText(companyName) || "Ny kund",
+
+      // Org.nr i båda varianterna
+      orgnr: orgNr ?? null,
+      org_nr: orgNr ?? null,
+
+      // Kontaktperson
+      contact_person: contactPerson ?? null,
+
+      // Kontaktuppgifter / adress
       email: email ?? null,
       phone: phone ?? null,
       address: address ?? null,
       zip: zip ?? null,
       city: city ?? null,
       country: country ?? "Sverige",
+
+      // Offert-info
+      customer_number: customerNumber ?? null,
+      contact_date: contactDate ?? null,
+
       updated_at: new Date().toISOString(),
     };
 

@@ -295,56 +295,110 @@ export default function KundDetaljsida() {
     // ============ LADDA KUNDDATA ============
     // Prioritet: 1) Supabase customers-tabellen, 2) localStorage
 
-    async function loadCustomerData() {
-      const getField = (row: any, keys: string[], fallback: string = "") => {
-        if (!row) return fallback;
-        for (const key of keys) {
-          const value = row[key];
-          if (value !== undefined && value !== null && value !== "") {
-            return String(value);
-          }
-        }
-        return fallback;
-      };
+    function cleanText(value: any): string {
+      const s = (value ?? "").toString().trim();
+      if (!s) return "";
 
+      // hoppa över rena datum så de inte blir företagsnamn
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";              // 2026-01-03
+      if (/^\d{1,2}\s+[A-Za-zÅÄÖåäö]+\s+\d{4}$/.test(s)) return ""; // 3 januari 2026
+
+      return s;
+    }
+
+    async function loadCustomerData() {
       try {
         const { data: customerRow, error } = await supabase
-          .from("customer_cards")
+          .from("customers")
           .select("*")
-          .eq("customer_id", customerId)
+          .eq("id", customerId)
           .maybeSingle();
 
         console.log("[page.tsx] customerRow:", customerRow);
         console.log("[page.tsx] error:", error ?? null);
 
-        if (!error && customerRow) {
-          console.log("[page.tsx] ✅ Loaded customer from Supabase customer_cards:", customerRow);
+     if (!error && customerRow) {
+  console.log("[page.tsx] ✅ Loaded customer from Supabase:", customerRow);
 
-          setData({
-            companyName: customerRow.name || "",
-            orgNr: customerRow.orgnr || "",
-            contactPerson: "",
-            role: "",
-            phone: customerRow.phone || "",
-            email: customerRow.email || "",
-            address: customerRow.address || "",
-            zip: "",
-            city: "",
-            country: "Sverige",
-            contactDate: "",
-            notes: "",
-            customerNumber: "",
-            offerText: "",
-            totalSum: "",
-            vatPercent: "",
-            vatAmount: "",
-            validityDays: ""
-          });
+  setData((prev) => ({
+    ...prev,
 
-          return;
-        } else if (error) {
+    // Företagsnamn – ta helst name, annars company_name, annars behåll det som redan finns
+    companyName:
+      cleanText(customerRow.name) ||
+      cleanText(customerRow.company_name) ||
+      prev.companyName,
+
+    // Org.nr
+    orgNr:
+      cleanText(customerRow.org_nr) ||
+      cleanText(customerRow.orgnr) ||
+      prev.orgNr,
+
+    // Kontaktperson
+    contactPerson:
+      cleanText(customerRow.contact_person) ||
+      prev.contactPerson,
+
+    // 🔹 Befattning (NYTT – laddar från role-kolumnen)
+    role:
+      cleanText(customerRow.role) ||
+      prev.role,
+
+    // Telefon
+    phone:
+      cleanText(customerRow.phone) ||
+      prev.phone,
+
+    // E-post
+    email:
+      cleanText(customerRow.email) ||
+      prev.email,
+
+    // Adress
+    address:
+      cleanText(customerRow.address) ||
+      prev.address,
+
+    // Postnummer
+    zip:
+      cleanText(customerRow.zip) ||
+      prev.zip,
+
+    // Ort
+    city:
+      cleanText(customerRow.city) ||
+      prev.city,
+
+    // Land
+    country:
+      cleanText(customerRow.country) ||
+      prev.country ||
+      "Sverige",
+
+    // Datum (kontakt/offertdatum) - behåll datumformatet här
+    contactDate:
+      (customerRow.contact_date &&
+        String(customerRow.contact_date).slice(0, 10)) ||
+      prev.contactDate,
+
+    // Anteckningar
+    notes:
+      cleanText(customerRow.notes) ||
+      prev.notes,
+
+    // Kundnummer
+    customerNumber:
+      cleanText(customerRow.customer_number) ||
+      prev.customerNumber,
+  }));
+
+  return;
+}
+ else if (error) {
           console.warn("[page.tsx] Supabase fetch error:", error.message);
         }
+
       } catch (e) {
         console.warn("[page.tsx] Failed to load from Supabase:", e);
       }
