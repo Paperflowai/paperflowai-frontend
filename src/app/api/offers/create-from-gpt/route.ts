@@ -15,6 +15,20 @@ function looksLikeDate(text: string): boolean {
   if (!text) return false;
   const t = text.trim().toLowerCase();
 
+  // Endast acceptera exakt 2026-01-03-format
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return true;
+
+  // Endast acceptera exakt "3 januari 2026"
+  if (/^\d{1,2}\s+(januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december)\s+\d{4}$/.test(t)) {
+    return true;
+  }
+
+  return false;
+}
+
+  if (!text) return false;
+  const t = text.trim().toLowerCase();
+
   // Format: 2026-01-03
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return true;
 
@@ -29,23 +43,71 @@ function looksLikeDate(text: string): boolean {
   return false;
 }
 
-function cleanText(value: any): string {
-  if (value === null || value === undefined) return "";
+function cleanText(value: any): string | null {
+  if (value === null || value === undefined) return null;
+
   const t = String(value).trim();
-  if (!t) return "";
-  if (looksLikeDate(t)) return ""; // ⬅️ Tar bort datum helt
+  if (!t) return null;
+
+  // 🚫 Endast filtrera verkliga datum – inte namn som "9 GPT AB"
+  if (looksLikeDate(t)) {
+    console.log(`[cleanText] Datum filtrerat bort: "${t}"`);
+    return null;
+  }
+
+  return t;
+}
+
+  if (value === null || value === undefined) return null;
+  const t = String(value).trim();
+  if (!t) return null;
+  if (looksLikeDate(t)) {
+    console.log(`[cleanText] 🚫 Datum filtrerat bort: "${t}"`);
+    return null; // ⬅️ Returnera null istället för ""
+  }
   return t;
 }
 
 // Hämta företagsnamn (nu rensat från datum)
 function getCompanyName(kund: any, safeJson: any): string {
-  return (
-    cleanText(kund?.namn) ||
-    cleanText(kund?.name) ||
-    cleanText(kund?.foretag) ||
-    cleanText(safeJson?.kundnamn) ||
+  // Testa alla möjliga fält i prioritetsordning
+  const candidates = [
+    { field: 'kund.namn', value: cleanText(kund?.namn) },
+    { field: 'kund.name', value: cleanText(kund?.name) },
+    { field: 'kund.foretag', value: cleanText(kund?.foretag) },
+    { field: 'kund.company', value: cleanText(kund?.company) },
+    { field: 'kund.companyName', value: cleanText(kund?.companyName) },
+    { field: 'safeJson.kundnamn', value: cleanText(safeJson?.kundnamn) },
+    { field: 'safeJson.foretag', value: cleanText(safeJson?.foretag) },
+    { field: 'safeJson.company', value: cleanText(safeJson?.company) },
+    { field: 'safeJson.companyName', value: cleanText(safeJson?.companyName) },
+  ];
+
+  console.log("[getCompanyName] 🔍 Testade fält:", candidates);
+
+  // Använd ?? (nullish coalescing) istället för || (logical OR)
+  // Detta kollar bara null/undefined, inte tomma strängar
+  const result = (
+    cleanText(kund?.namn) ??
+    cleanText(kund?.name) ??
+    cleanText(kund?.foretag) ??
+    cleanText(kund?.company) ??
+    cleanText(kund?.companyName) ??
+    cleanText(safeJson?.kundnamn) ??
+    cleanText(safeJson?.foretag) ??
+    cleanText(safeJson?.company) ??
+    cleanText(safeJson?.companyName) ??
     "Ny kund"
   );
+
+  console.log("[getCompanyName] ✅ Slutresultat:", result);
+
+  // Varning om vi hamnade på fallback
+  if (result === "Ny kund") {
+    console.warn("[getCompanyName] ⚠️ Inget företagsnamn hittades! Alla fält var null/datum.");
+  }
+
+  return result;
 }
 
 export const runtime = "nodejs";
@@ -72,7 +134,35 @@ export async function POST(req: Request) {
     const safeJson = jsonData || {};
     const kund = safeJson.kund || safeJson.customer || {};
 
-    const companyName = getCompanyName(kund, safeJson);
+    // 🔍 DEBUG: Logga vad GPT faktiskt skickar
+    console.log("[create-from-gpt] 📦 Raw jsonData:", JSON.stringify(jsonData, null, 2));
+    console.log("[create-from-gpt] 👤 kund-object:", JSON.stringify(kund, null, 2));
+
+    let companyName = getCompanyName(kund, safeJson);
+
+    console.log("[create-from-gpt] 🏢 Resultat companyName:", companyName);
+
+    // 🛡️ EXTRA SÄKERHET: Om vi fick "Ny kund", försök hitta NÅGOT namn
+    if (companyName === "Ny kund") {
+      console.warn("[create-from-gpt] ⚠️ Fick 'Ny kund' - försöker hitta alternativt namn...");
+
+      // Sök i alla toppnivå-fält i jsonData
+      const alternativeNames = [
+        safeJson.namn,
+        safeJson.name,
+        safeJson.företag,
+        safeJson.foretag,
+        safeJson.company,
+        kund.företag,
+      ].map(v => cleanText(v)).filter(v => v !== null);
+
+      if (alternativeNames.length > 0) {
+        companyName = alternativeNames[0]!;
+        console.log("[create-from-gpt] ✅ Hittade alternativt namn:", companyName);
+      } else {
+        console.error("[create-from-gpt] ❌ VARNING: Inget företagsnamn hittades i jsonData!");
+      }
+    }
 
 
     const contactPerson =
@@ -140,9 +230,9 @@ export async function POST(req: Request) {
     // 4) Upsert i public.customers (gamla strukturen)
     const customerRow = {
       id: customerId,
-      // Företagsnamn
-      name: cleanText(companyName) || "Ny kund",
-      company_name: cleanText(companyName) || "Ny kund",
+      // Företagsnamn (companyName är redan rensat av getCompanyName)
+      name: companyName,
+      company_name: companyName,
 
       // Org.nr i båda varianterna
       orgnr: orgNr ?? null,
@@ -186,7 +276,7 @@ export async function POST(req: Request) {
     // 5) Upsert i public.customer_cards
     const customerDataCards = {
       customer_id: customerId,
-      name: companyName ?? "Ny kund",
+      name: companyName,
       orgnr: orgNr ?? null,
       email: email ?? null,
       phone: phone ?? null,
@@ -285,6 +375,29 @@ export async function POST(req: Request) {
       return bad("Offer insert failed: " + offerErr.message, 500);
     }
 
+    // Bygg customerData-objektet
+    const customerData = {
+      companyName,
+      orgNr,
+      contactPerson,
+      email,
+      phone,
+      address,
+      zip,
+      city,
+      country,
+      customerNumber,
+      contactDate,
+    };
+
+    console.log("[create-from-gpt] 📤 Skickar tillbaka customerData:", customerData);
+
+    // Varning om companyName är "Ny kund" men andra fält finns
+    if (companyName === "Ny kund" && (orgNr || contactPerson || email)) {
+      console.warn("[create-from-gpt] ⚠️ VARNING: companyName är 'Ny kund' men andra kunduppgifter finns!");
+      console.warn("[create-from-gpt] Detta kan betyda att GPT skickade datum istället för företagsnamn.");
+    }
+
     return NextResponse.json(
       {
         ok: true,
@@ -293,19 +406,7 @@ export async function POST(req: Request) {
         offerId: offerRow.id,
         pdfUrl: pub.publicUrl,
         // ✅ Inkludera customerData för autofyll på frontend
-        customerData: {
-          companyName,
-          orgNr,
-          contactPerson,
-          email,
-          phone,
-          address,
-          zip,
-          city,
-          country,
-          customerNumber,
-          contactDate,
-        },
+        customerData,
       },
       { status: 200 }
     );

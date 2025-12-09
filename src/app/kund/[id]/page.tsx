@@ -295,13 +295,14 @@ export default function KundDetaljsida() {
     // ============ LADDA KUNDDATA ============
     // Prioritet: 1) Supabase customers-tabellen, 2) localStorage
 
-    function cleanText(value: any): string {
+    // Returnerar värdet om det är giltigt (inte datum/tomt), annars undefined
+    function cleanText(value: any): string | undefined {
       const s = (value ?? "").toString().trim();
-      if (!s) return "";
+      if (!s) return undefined;
 
       // hoppa över rena datum så de inte blir företagsnamn
-      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";              // 2026-01-03
-      if (/^\d{1,2}\s+[A-Za-zÅÄÖåäö]+\s+\d{4}$/.test(s)) return ""; // 3 januari 2026
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return undefined;              // 2026-01-03
+      if (/^\d{1,2}\s+[A-Za-zÅÄÖåäö]+\s+\d{4}$/.test(s)) return undefined; // 3 januari 2026
 
       return s;
     }
@@ -325,71 +326,71 @@ export default function KundDetaljsida() {
 
     // Företagsnamn – ta helst name, annars company_name, annars behåll det som redan finns
     companyName:
-      cleanText(customerRow.name) ||
-      cleanText(customerRow.company_name) ||
+      cleanText(customerRow.name) ??
+      cleanText(customerRow.company_name) ??
       prev.companyName,
 
     // Org.nr
     orgNr:
-      cleanText(customerRow.org_nr) ||
-      cleanText(customerRow.orgnr) ||
+      cleanText(customerRow.org_nr) ??
+      cleanText(customerRow.orgnr) ??
       prev.orgNr,
 
     // Kontaktperson
     contactPerson:
-      cleanText(customerRow.contact_person) ||
+      cleanText(customerRow.contact_person) ??
       prev.contactPerson,
 
     // 🔹 Befattning (NYTT – laddar från role-kolumnen)
     role:
-      cleanText(customerRow.role) ||
+      cleanText(customerRow.role) ??
       prev.role,
 
     // Telefon
     phone:
-      cleanText(customerRow.phone) ||
+      cleanText(customerRow.phone) ??
       prev.phone,
 
     // E-post
     email:
-      cleanText(customerRow.email) ||
+      cleanText(customerRow.email) ??
       prev.email,
 
     // Adress
     address:
-      cleanText(customerRow.address) ||
+      cleanText(customerRow.address) ??
       prev.address,
 
     // Postnummer
     zip:
-      cleanText(customerRow.zip) ||
+      cleanText(customerRow.zip) ??
       prev.zip,
 
     // Ort
     city:
-      cleanText(customerRow.city) ||
+      cleanText(customerRow.city) ??
       prev.city,
 
     // Land
     country:
-      cleanText(customerRow.country) ||
-      prev.country ||
+      cleanText(customerRow.country) ??
+      prev.country ??
       "Sverige",
 
     // Datum (kontakt/offertdatum) - behåll datumformatet här
     contactDate:
       (customerRow.contact_date &&
-        String(customerRow.contact_date).slice(0, 10)) ||
+        String(customerRow.contact_date).slice(0, 10)) ??
       prev.contactDate,
 
     // Anteckningar
     notes:
-      cleanText(customerRow.notes) ||
+      cleanText(customerRow.notes) ??
       prev.notes,
 
     // Kundnummer
     customerNumber:
-      cleanText(customerRow.customer_number) ||
+      cleanText(customerRow.customer_number) ??
       prev.customerNumber,
   }));
 
