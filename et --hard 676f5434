@@ -1,0 +1,10 @@
+[33ma775d88f[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Fix: Remove duplicated cleanText function causing syntax error
+[33m4c8f300b[m Fix: Function signature mismatch in extractCustomerData
+[33m676f5434[m[33m ([m[1;33mtag: [m[1;33mSAFE_POINT_1[m[33m)[m Fix: corrected date filtering so companyName and autofill works
+[33m7c3b13bb[m Update Next.js to 15.5.7 (security patch)
+[33m1b0cfc14[m Fix JSON + update Next.js to 15.5.2
+[33ma144b980[m Update Next.js to latest secure version
+[33m07526a2b[m Fix: Rensa företagsnamn från datum + uppdaterad cleanText + getCompanyName
+[33m3b790e41[m Clean up company_name usage in customers APIs
+[33m3172ec17[m Fix customers upsert (remove company_name)
+[33mcb2b825a[m Fix nullish coalescing in buildDocument

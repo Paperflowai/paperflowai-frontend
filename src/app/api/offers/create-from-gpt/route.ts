@@ -15,20 +15,6 @@ function looksLikeDate(text: string): boolean {
   if (!text) return false;
   const t = text.trim().toLowerCase();
 
-  // Endast acceptera exakt 2026-01-03-format
-  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return true;
-
-  // Endast acceptera exakt "3 januari 2026"
-  if (/^\d{1,2}\s+(januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december)\s+\d{4}$/.test(t)) {
-    return true;
-  }
-
-  return false;
-}
-
-  if (!text) return false;
-  const t = text.trim().toLowerCase();
-
   // Format: 2026-01-03
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return true;
 
@@ -45,26 +31,14 @@ function looksLikeDate(text: string): boolean {
 
 function cleanText(value: any): string | null {
   if (value === null || value === undefined) return null;
-
   const t = String(value).trim();
   if (!t) return null;
 
-  // 🚫 Endast filtrera verkliga datum – inte namn som "9 GPT AB"
   if (looksLikeDate(t)) {
-    console.log(`[cleanText] Datum filtrerat bort: "${t}"`);
+    console.log(`[cleanText] 🚫 Datum filtrerat bort: "${t}"`);
     return null;
   }
 
-  return t;
-}
-
-  if (value === null || value === undefined) return null;
-  const t = String(value).trim();
-  if (!t) return null;
-  if (looksLikeDate(t)) {
-    console.log(`[cleanText] 🚫 Datum filtrerat bort: "${t}"`);
-    return null; // ⬅️ Returnera null istället för ""
-  }
   return t;
 }
 
@@ -208,6 +182,11 @@ export async function POST(req: Request) {
       kund.country ??
       "Sverige";
 
+    const role =
+      kund.befattning ??
+      kund.role ??
+      null;
+
     const customerNumber =
       safeJson.offert?.offertnummer ??
       safeJson.offertnummer ??
@@ -217,6 +196,21 @@ export async function POST(req: Request) {
       safeJson.offert?.datum ??
       safeJson.datum ??
       null;
+
+    // 🔍 DEBUG: Logga alla extraherade värden
+    console.log("[create-from-gpt] 📊 Extraherade värden:");
+    console.log("  companyName:", companyName);
+    console.log("  orgNr:", orgNr);
+    console.log("  contactPerson:", contactPerson);
+    console.log("  role:", role);
+    console.log("  email:", email);
+    console.log("  phone:", phone);
+    console.log("  address:", address);
+    console.log("  zip:", zip);
+    console.log("  city:", city);
+    console.log("  country:", country);
+    console.log("  customerNumber:", customerNumber);
+    console.log("  contactDate:", contactDate);
 
     // Sätt kund-ID
     if (!customerId) {
@@ -248,6 +242,9 @@ export async function POST(req: Request) {
       zip: zip ?? null,
       city: city ?? null,
       country: country ?? "Sverige",
+
+      // Befattning
+      role: role ?? null,
 
       // Offert-info
       customer_number: customerNumber ?? null,
@@ -386,6 +383,7 @@ export async function POST(req: Request) {
       zip,
       city,
       country,
+      role,
       customerNumber,
       contactDate,
     };

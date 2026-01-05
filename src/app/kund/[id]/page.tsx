@@ -1471,7 +1471,7 @@ export default function KundDetaljsida() {
         </div>
       </header>
 
-     
+
       {/* Till bokföringen-knapp */}
       <div className="mb-4 flex gap-2 justify-between flex-wrap">
         <Link
@@ -1481,7 +1481,7 @@ export default function KundDetaljsida() {
           🏠 Tillbaka till Start
         </Link>
 
-       
+
         <Link
           href="/dashboard/bookkeepingboard"
           className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 transition-colors"

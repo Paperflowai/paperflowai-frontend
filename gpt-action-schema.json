@@ -1,0 +1,268 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PaperflowAI Offers API",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://paperflowai-frontend.vercel.app"
+    }
+  ],
+  "paths": {
+    "/api/customers/{customerId}": {
+      "patch": {
+        "operationId": "updateCustomer",
+        "summary": "Update customer company name",
+        "description": "Updates customer's company name ONLY if current value is a placeholder (OKÄNT FÖRETAG, Ny kund, etc.)",
+        "parameters": [
+          {
+            "name": "customerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Customer ID from createOfferFromGpt response"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["company_name"],
+                "properties": {
+                  "company_name": {
+                    "type": "string",
+                    "description": "The correct company name to update",
+                    "example": "Acme AB"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Customer updated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "customer": {
+                      "type": "object",
+                      "description": "Updated customer data"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Customer updated from \"OKÄNT FÖRETAG\" to \"Acme AB\""
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Customer already has a real name (not a placeholder)"
+          },
+          "404": {
+            "description": "Customer not found"
+          }
+        }
+      }
+    },
+    "/api/offers/create-from-gpt": {
+      "post": {
+        "operationId": "createOfferFromGpt",
+        "summary": "Skapa offert från GPT",
+        "description": "Skapar ny kund och offert från GPT-genererad data",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["textData", "jsonData"],
+                "properties": {
+                  "customerId": {
+                    "type": "null",
+                    "description": "Ska alltid vara null för att skapa ny kund"
+                  },
+                  "textData": {
+                    "type": "string",
+                    "description": "Fullständig offerttext för PDF-generering"
+                  },
+                  "jsonData": {
+                    "type": "object",
+                    "required": ["kund", "titel", "summa", "valuta"],
+                    "properties": {
+                      "titel": {
+                        "type": "string",
+                        "description": "Offertens titel",
+                        "example": "Offert för webbutveckling"
+                      },
+                      "summa": {
+                        "type": "number",
+                        "description": "Total summa exkl. moms",
+                        "example": 118000
+                      },
+                      "valuta": {
+                        "type": "string",
+                        "description": "Valuta",
+                        "example": "SEK"
+                      },
+                      "offert": {
+                        "type": "object",
+                        "description": "Offertmetadata",
+                        "properties": {
+                          "offertnummer": {
+                            "type": "string",
+                            "description": "Offertnummer i format OFF-YYYY-XXXX",
+                            "example": "OFF-2026-0001"
+                          },
+                          "datum": {
+                            "type": "string",
+                            "description": "Datum i format YYYY-MM-DD",
+                            "example": "2026-01-02"
+                          }
+                        }
+                      },
+                      "kund": {
+                        "type": "object",
+                        "required": ["namn"],
+                        "description": "Kundinformation",
+                        "properties": {
+                          "namn": {
+                            "type": "string",
+                            "description": "Företagsnamn (VIKTIGT: Skicka alltid företagsnamnet här, ALDRIG datum)",
+                            "example": "Exempel AB"
+                          },
+                          "orgnr": {
+                            "type": "string",
+                            "description": "Organisationsnummer i format XXXXXX-XXXX",
+                            "example": "556677-8899"
+                          },
+                          "kontaktperson": {
+                            "type": "string",
+                            "description": "Kontaktpersonens fullständiga namn",
+                            "example": "Anna Andersson"
+                          },
+                          "befattning": {
+                            "type": "string",
+                            "description": "Kontaktpersonens befattning/titel",
+                            "example": "VD"
+                          },
+                          "epost": {
+                            "type": "string",
+                            "description": "E-postadress",
+                            "example": "anna@exempel.se"
+                          },
+                          "telefon": {
+                            "type": "string",
+                            "description": "Telefonnummer",
+                            "example": "070-123 45 67"
+                          },
+                          "adress": {
+                            "type": "string",
+                            "description": "Gatuadress",
+                            "example": "Exempelgatan 1"
+                          },
+                          "postnummer": {
+                            "type": "string",
+                            "description": "Postnummer i format XXX XX (med mellanslag)",
+                            "example": "123 45"
+                          },
+                          "ort": {
+                            "type": "string",
+                            "description": "Stad/ort",
+                            "example": "Stockholm"
+                          },
+                          "land": {
+                            "type": "string",
+                            "description": "Land",
+                            "default": "Sverige",
+                            "example": "Sverige"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "example": {
+                "customerId": null,
+                "textData": "# OFFERT\n\nKund: Exempel AB\nDatum: 2026-01-02\nOffertnummer: OFF-2026-0001\n\n## Kundinformation\nOrg.nr: 556677-8899\nAdress: Exempelgatan 1\n123 45 Stockholm\nKontaktperson: Anna Andersson, VD\nTelefon: 070-123 45 67\nE-post: anna@exempel.se\n\n## Tjänster\n- Systemanalys: 20 tim × 1200 kr = 24 000 kr\n- Frontend utveckling: 40 tim × 1200 kr = 48 000 kr\n- Backend utveckling: 30 tim × 1200 kr = 36 000 kr\n- SEO-optimering: 10 tim × 1000 kr = 10 000 kr\n\nTotalsumma: 118 000 SEK exkl. moms\nMoms (25%): 29 500 SEK\nTotalt inkl. moms: 147 500 SEK\n\n## Betalningsvillkor\nBetaltid: 30 dagar\nDröjsmålsränta: 8% enligt räntelagen\n\n## Giltighet\nDenna offert är giltig i 30 dagar från utskriftsdatum.",
+                "jsonData": {
+                  "titel": "Offert för webbutveckling",
+                  "summa": 118000,
+                  "valuta": "SEK",
+                  "offert": {
+                    "offertnummer": "OFF-2026-0001",
+                    "datum": "2026-01-02"
+                  },
+                  "kund": {
+                    "namn": "Exempel AB",
+                    "orgnr": "556677-8899",
+                    "kontaktperson": "Anna Andersson",
+                    "befattning": "VD",
+                    "epost": "anna@exempel.se",
+                    "telefon": "070-123 45 67",
+                    "adress": "Exempelgatan 1",
+                    "postnummer": "123 45",
+                    "ort": "Stockholm",
+                    "land": "Sverige"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offert skapad",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "customerId": {
+                      "type": "string",
+                      "description": "Genererat kund-ID"
+                    },
+                    "documentId": {
+                      "type": "string"
+                    },
+                    "offerId": {
+                      "type": "string"
+                    },
+                    "pdfUrl": {
+                      "type": "string"
+                    },
+                    "customerData": {
+                      "type": "object",
+                      "description": "Kunddata för autofyll"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payload"
+          }
+        }
+      }
+    }
+  }
+}

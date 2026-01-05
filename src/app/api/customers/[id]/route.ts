@@ -1,58 +1,71 @@
-// src/app/api/customers/[id]/route.ts
-import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-export async function DELETE(
-  _req: Request,
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+export async function PATCH(
+  req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const customerId = params.id;
+  try {
+    const body = await req.json();
+    const newCompanyName = body.company_name?.trim();
 
-  if (!customerId) {
+    if (!newCompanyName) {
+      return NextResponse.json(
+        { ok: false, error: "No company name provided" },
+        { status: 400 }
+      );
+    }
+
+    // 1. Hämta nuvarande kund
+    const { data: customer, error: fetchError } = await supabase
+      .from("customers")
+      .select("company_name")
+      .eq("id", params.id)
+      .single();
+
+    if (fetchError || !customer) {
+      return NextResponse.json(
+        { ok: false, error: "Customer not found" },
+        { status: 404 }
+      );
+    }
+
+    // 2. Uppdatera ENDAST om placeholder
+    if (
+      customer.company_name &&
+      customer.company_name !== "OKÄNT FÖRETAG"
+    ) {
+      return NextResponse.json(
+        { ok: false, error: "Customer already has a real name" },
+        { status: 409 }
+      );
+    }
+
+    const { error: updateError } = await supabase
+      .from("customers")
+      .update({ company_name: newCompanyName })
+      .eq("id", params.id);
+
+    if (updateError) {
+      return NextResponse.json(
+        { ok: false, error: updateError.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      message: "Customer company name updated",
+    });
+  } catch (err) {
     return NextResponse.json(
-      { ok: false, error: "Missing customer id" },
+      { ok: false, error: "Invalid request" },
       { status: 400 }
     );
   }
-
-  // 1) Ta bort alla offers kopplade till kunden
-  const { error: offersError } = await supabaseAdmin
-    .from("offers")
-    .delete()
-    .eq("customer_id", customerId);
-
-  if (offersError) {
-    return NextResponse.json(
-      { ok: false, error: offersError.message },
-      { status: 500 }
-    );
-  }
-
-  // 2) Ta bort alla kundkort (customer_cards) kopplade till kunden
-  const { error: cardsError } = await supabaseAdmin
-    .from("customer_cards")
-    .delete()
-    .eq("customer_id", customerId);
-
-  if (cardsError) {
-    return NextResponse.json(
-      { ok: false, error: cardsError.message },
-      { status: 500 }
-    );
-  }
-
-  // 3) Ta bort själva kunden
-  const { error: customerError } = await supabaseAdmin
-    .from("customers")
-    .delete()
-    .eq("id", customerId);
-
-  if (customerError) {
-    return NextResponse.json(
-      { ok: false, error: customerError.message },
-      { status: 500 }
-    );
-  }
-
-  return NextResponse.json({ ok: true }, { status: 200 });
 }

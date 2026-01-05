@@ -1,131 +1,244 @@
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseServer";
+import pdfParse from "pdf-parse";
 
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
-import { extractOfferFields } from '@/utils/extractOfferFields';
+export const runtime = "nodejs";
 
-async function supa() {
-  const jar = await cookies(); // <-- mÃ¥ste awaitas i Next 15
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get: (n) => jar.get(n)?.value,
-        set: (n, v, o) => jar.set({ name: n, value: v, ...o }),
-        remove: (n, o) =>
-          jar.set({ name: n, value: '', ...o, expires: new Date(0) }),
-      },
-    }
-  );
-}
+// Hjälpfunktioner för att extrahera fält från text
+const monthNames = [
+  "januari", "februari", "mars", "april", "maj", "juni",
+  "juli", "augusti", "september", "oktober", "november", "december",
+];
 
-// Ladda pdf-parse dynamiskt sÃ¥ att Next inte bundlar deras testfil
-async function extractTextFromPDF(pdfBuffer: ArrayBuffer): Promise<string> {
-  try {
-    const { default: pdf }: any = await import('pdf-parse');
-    const data = await pdf(Buffer.from(pdfBuffer));
-    return data.text || '';
-  } catch (err) {
-    console.warn('[offers/parse] PDF text extraction failed:', err);
-    return '';
+function looksLikeDate(text: string): boolean {
+  if (!text) return false;
+  const t = text.trim().toLowerCase();
+
+  // Format: 2026-01-03
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return true;
+
+  // Format: 3 januari 2026
+  if (/^\d{1,2}\s+(januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december)\s+\d{4}$/.test(t)) {
+    return true;
   }
+
+  // Om texten innehåller en månad + år ’ troligt datum
+  if (monthNames.some((m) => t.includes(m)) && /\d{4}/.test(t)) {
+    return true;
+  }
+
+  return false;
 }
 
-function bad(where: string, message: string, status = 400) {
-  console.error(`[offers/parse][${where}]`, message);
-  return Response.json({ ok: false, where, message }, { status });
+function cleanText(value: any): string | null {
+  if (value === null || value === undefined) return null;
+  const t = String(value).trim();
+  if (!t) return null;
+
+  // Filtrera bort datum
+  if (looksLikeDate(t)) {
+    return null;
+  }
+
+  return t;
 }
 
-export async function POST(req: Request) {
+// Extrahera fält från PDF-text
+function parseFieldsFromText(text: string) {
+  const lines = text.split('\n').map(l => l.trim());
+
+  const customer: any = {};
+  const metadata: any = {};
+  const totals: any = {};
+
+  // Sök efter företagsnamn (undvik rader som börjar med "Kund:" eller "Företag:")
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Företagsnamn (ofta på egen rad, inte ett datum)
+    if (line && !looksLikeDate(line) && line.length > 2 && line.length < 60) {
+      // Kolla om det ser ut som ett företagsnamn (innehåller bokstäver men inte "Offert", "Datum" etc)
+      if (!/^(offert|datum|kund|företag|org\.?nr|kontakt|adress|telefon|e-?post|summa|moms|total):/i.test(line)) {
+        // Om vi inte redan har ett namn och denna rad inte är ett vanligt label
+        if (!customer.namn && !/^\d+$/.test(line) && line.split(' ').length <= 5) {
+          const cleaned = cleanText(line);
+          if (cleaned && cleaned !== 'OFFERT') {
+            customer.namn = cleaned;
+          }
+        }
+      }
+    }
+
+    // Org.nr
+    if (/org\.?\s*nr|organisationsnummer/i.test(line)) {
+      const match = line.match(/(\d{6}[-\s]?\d{4})/);
+      if (match) customer.orgnr = match[1].replace(/\s/g, '');
+    }
+
+    // Kontaktperson
+    if (/kontaktperson|contact\s*person/i.test(line)) {
+      const match = line.match(/:\s*(.+)$/);
+      if (match) {
+        const cleaned = cleanText(match[1]);
+        if (cleaned) customer.kontaktperson = cleaned;
+      }
+    }
+
+    // E-post
+    if (/e-?post|email/i.test(line)) {
+      const match = line.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+      if (match) customer.epost = match[1];
+    }
+
+    // Telefon
+    if (/telefon|phone|tel/i.test(line)) {
+      const match = line.match(/(\+?\d[\d\s\-()]{7,})/);
+      if (match) customer.telefon = match[1].trim();
+    }
+
+    // Adress
+    if (/^adress|address/i.test(line)) {
+      const match = line.match(/:\s*(.+)$/);
+      if (match) {
+        const cleaned = cleanText(match[1]);
+        if (cleaned) customer.adress = cleaned;
+      }
+    }
+
+    // Postnummer och ort
+    if (/postnummer|postal\s*code|zip/i.test(line)) {
+      const match = line.match(/(\d{3}\s?\d{2})/);
+      if (match) customer.postnummer = match[1];
+    }
+
+    if (/^ort|city/i.test(line)) {
+      const match = line.match(/:\s*(.+)$/);
+      if (match) {
+        const cleaned = cleanText(match[1]);
+        if (cleaned) customer.ort = cleaned;
+      }
+    }
+
+    // Land
+    if (/^land|country/i.test(line)) {
+      const match = line.match(/:\s*(.+)$/);
+      if (match) {
+        const cleaned = cleanText(match[1]);
+        if (cleaned) customer.land = cleaned;
+      }
+    }
+
+    // Offertnummer
+    if (/offert.*nummer|offer.*number/i.test(line)) {
+      const match = line.match(/(OFF-\d{4}-\d{4}|\d+)/);
+      if (match) metadata.offerNumber = match[1];
+    }
+
+    // Datum
+    if (/^datum|^date/i.test(line)) {
+      const match = line.match(/:\s*(.+)$/);
+      if (match) {
+        const dateStr = match[1].trim();
+        // Försök konvertera till ISO-format
+        metadata.date = dateStr;
+      }
+    }
+
+    // Giltighetstid
+    if (/giltighet|validity|giltig\s+i/i.test(line)) {
+      const match = line.match(/(\d+)\s*dagar/i);
+      if (match) metadata.validity = parseInt(match[1]);
+    }
+
+    // Totalsumma
+    if (/totalsumma|total|summa/i.test(line) && /\d/.test(line)) {
+      const match = line.match(/(\d[\d\s]*)/);
+      if (match) {
+        const amount = match[1].replace(/\s/g, '');
+        totals.net = parseInt(amount);
+      }
+    }
+
+    // Moms
+    if (/moms|vat/i.test(line) && /\d/.test(line)) {
+      const percentMatch = line.match(/(\d+)\s*%/);
+      if (percentMatch) {
+        totals.vatPercent = parseInt(percentMatch[1]);
+      }
+
+      const amountMatch = line.match(/(\d[\d\s]+)\s*SEK/);
+      if (amountMatch) {
+        totals.vatAmount = parseInt(amountMatch[1].replace(/\s/g, ''));
+      }
+    }
+  }
+
+  // Beräkna brutto om vi har netto och moms
+  if (totals.net && totals.vatAmount) {
+    totals.gross = totals.net + totals.vatAmount;
+  }
+
+  return { customer, metadata, totals };
+}
+
+export async function POST(req: NextRequest) {
   try {
-    const { bucket, path } = await req.json();
+    const body = await req.json();
+    const { bucket, path } = body;
 
     if (!bucket || !path) {
-      return bad('validate', 'Missing bucket or path', 400);
-    }
-
-    const supabase = await supa();
-
-    // 1) Ladda ner PDF frÃ¥n Storage
-    const { data: pdfFile, error: downloadError } = await supabase.storage
-      .from(bucket)
-      .download(path);
-
-    if (downloadError || !pdfFile) {
-      return bad(
-        'download',
-        downloadError?.message || 'Failed to download PDF from storage',
-        500
+      return NextResponse.json(
+        { ok: false, error: "Missing bucket or path" },
+        { status: 400 }
       );
     }
 
-    // 2) Extrahera text
-    const pdfBuffer = await pdfFile.arrayBuffer();
-    const text = await extractTextFromPDF(pdfBuffer);
+    // Ladda ner PDF från Supabase Storage
+    const { data: fileData, error: downloadError } = await supabaseAdmin.storage
+      .from(bucket)
+      .download(path);
 
-    if (!text.trim()) {
-      return bad('extract', 'No text found in PDF (scanned image?)', 400);
+    if (downloadError || !fileData) {
+      console.error("[parse] Download error:", downloadError);
+      return NextResponse.json(
+        { ok: false, error: "Could not download PDF" },
+        { status: 500 }
+      );
     }
 
-    // 3) Tolka fÃ¤lt
-    const extracted = extractOfferFields(text);
+    // Konvertera blob till buffer
+    const arrayBuffer = await fileData.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
 
-    // 4) Mappa till frontendens format
-    const customer = {
-      companyName: extracted.companyName,
-      contactPerson: extracted.contactPerson,
-      email: extracted.email,
-      phone: extracted.phone,
-      address: extracted.address,
-      zip: extracted.zip,
-      city: extracted.city,
-      orgNr: extracted.orgNr,
-      country: extracted.country,
-    };
+    // Extrahera text från PDF
+    let pdfData;
+    try {
+      pdfData = await pdfParse(buffer);
+    } catch (parseError) {
+      console.error("[parse] PDF parse error:", parseError);
+      return NextResponse.json(
+        { ok: false, error: "Could not parse PDF" },
+        { status: 500 }
+      );
+    }
 
-    const lines =
-      extracted.items?.map((item) => ({
-        text: item.name,
-        qty: item.hours ? parseFloat(item.hours) : 1,
-        price: item.pricePerHour
-          ? parseFloat(item.pricePerHour.replace(/[^\d.-]/g, ''))
-          : 0,
-        amount: item.total
-          ? parseFloat(item.total.replace(/[^\d.-]/g, ''))
-          : 0,
-      })) || [];
+    const text = pdfData.text;
+    console.log("[parse] Extracted text length:", text.length);
 
-    const totals = {
-      net: extracted.total
-        ? parseFloat(extracted.total.replace(/[^\d.-]/g, ''))
-        : 0,
-      vat: extracted.vat ? parseFloat(extracted.vat) : 25,
-      gross: extracted.vatAmount
-        ? parseFloat(extracted.vatAmount.replace(/[^\d.-]/g, ''))
-        : 0,
-    };
+    // Parsa fält från texten
+    const parsed = parseFieldsFromText(text);
 
-    const metadata = {
-      offerNumber: extracted.offerNumber,
-      date: extracted.date,
-      validity: extracted.validity,
-      notes: extracted.notes,
-    };
+    console.log("[parse] Parsed data:", JSON.stringify(parsed, null, 2));
 
-    return Response.json(
-      { ok: true, parsed: { customer, lines, totals, metadata } },
-      { status: 200 }
-    );
+    return NextResponse.json({
+      ok: true,
+      parsed,
+      rawText: text, // Inkludera för debugging
+    });
   } catch (error) {
-    console.error('[offers/parse] Server error:', error);
-    return Response.json(
-      {
-        ok: false,
-        where: 'exception',
-        message: error instanceof Error ? error.message : String(error),
-      },
+    console.error("[parse] Error:", error);
+    return NextResponse.json(
+      { ok: false, error: "Internal server error" },
       { status: 500 }
     );
   }
