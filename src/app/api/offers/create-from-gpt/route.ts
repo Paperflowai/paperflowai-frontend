@@ -270,6 +270,64 @@ export async function POST(req: Request) {
       email,
     });
 
+    // 4.5) Auto-fix: If company name is placeholder, try to extract from text
+    const isPlaceholder =
+      !companyName ||
+      companyName === "OKÄNT FÖRETAG" ||
+      companyName === "Ny kund" ||
+      companyName === "Namnlös kund";
+
+    if (isPlaceholder && textData) {
+      console.log("[create-from-gpt] 🔍 Company name is placeholder, trying to extract from text...");
+
+      // Try to extract company name from text
+      const lines = textData.split('\n').map(l => l.trim()).filter(Boolean);
+      let extractedName = null;
+
+      // Look for common patterns
+      for (const line of lines.slice(0, 20)) { // Check first 20 lines
+        // Pattern: "Kund: Company AB" or "Företag: Company AB"
+        const match1 = line.match(/^(?:Kund|Företag|Till|Company):\s*(.+)$/i);
+        if (match1 && !looksLikeDate(match1[1])) {
+          extractedName = cleanText(match1[1]);
+          if (extractedName) break;
+        }
+
+        // Pattern: Line that looks like company name (has AB, Ltd, Inc, etc)
+        if (/\b(AB|HB|KB|Ltd|Inc|LLC|AS)\b/i.test(line) && !looksLikeDate(line)) {
+          const cleaned = cleanText(line);
+          if (cleaned && cleaned.length < 60 && !/^(offert|datum|kund|företag)/i.test(cleaned)) {
+            extractedName = cleaned;
+            break;
+          }
+        }
+      }
+
+      // If we found a real company name, update immediately
+      if (extractedName && extractedName !== companyName) {
+        console.log(`[create-from-gpt] ✨ Found company name in text: "${extractedName}"`);
+        console.log(`[create-from-gpt] 🔄 Auto-updating from "${companyName}" to "${extractedName}"`);
+
+        const { error: updateError } = await supabaseAdmin
+          .from("customers")
+          .update({
+            name: extractedName,
+            company_name: extractedName,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", customerId);
+
+        if (updateError) {
+          console.warn("[create-from-gpt] ⚠️ Auto-update failed:", updateError.message);
+        } else {
+          console.log("[create-from-gpt] ✅ Company name auto-updated successfully");
+          companyName = extractedName; // Update for response
+        }
+      } else {
+        console.log("[create-from-gpt] ℹ️ Could not extract company name from text");
+      }
+    }
+
     // 5) Upsert i public.customer_cards
     const customerDataCards = {
       customer_id: customerId,
