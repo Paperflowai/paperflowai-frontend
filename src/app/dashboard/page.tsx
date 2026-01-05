@@ -574,7 +574,7 @@ const laddaKunder = async () => {
   try {
     const { data, error } = await supabase
       .from('customers')
-      .select('id, name, orgnr, email, phone, address, zip, city, country');
+      .select('id, name, company_name, orgnr, email, phone, address, zip, city, country');
 
     if (error) {
       console.error('Kunde inte hämta customers från Supabase:', error.message);
@@ -584,7 +584,7 @@ const laddaKunder = async () => {
 
     const dbCustomers: Kund[] = (data || []).map((row: any) => ({
   id: String(row.id),
-  companyName: (row.name || '').trim(),
+  companyName: (row.name || row.company_name || '').trim(),  // ← BÅDA
 
       orgNr: row.orgnr || '',
       contactPerson: '',
