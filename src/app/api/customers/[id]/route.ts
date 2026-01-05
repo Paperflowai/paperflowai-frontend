@@ -69,3 +69,41 @@ export async function PATCH(
     );
   }
 }
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    // Ta bort offers kopplade till kunden
+    await supabase
+      .from("offers")
+      .delete()
+      .eq("customer_id", params.id);
+
+    // Ta bort customer_cards kopplade till kunden
+    await supabase
+      .from("customer_cards")
+      .delete()
+      .eq("customer_id", params.id);
+
+    // Ta bort kunden
+    const { error } = await supabase
+      .from("customers")
+      .delete()
+      .eq("id", params.id);
+
+    if (error) {
+      return NextResponse.json(
+        { ok: false, error: error.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, error: "Failed to delete customer" },
+      { status: 500 }
+    );
+  }
+}

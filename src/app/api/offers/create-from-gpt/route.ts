@@ -15,20 +15,6 @@ function looksLikeDate(text: string): boolean {
   if (!text) return false;
   const t = text.trim().toLowerCase();
 
-  // Endast acceptera exakt 2026-01-03-format
-  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return true;
-
-  // Endast acceptera exakt "3 januari 2026"
-  if (/^\d{1,2}\s+(januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december)\s+\d{4}$/.test(t)) {
-    return true;
-  }
-
-  return false;
-}
-
-  if (!text) return false;
-  const t = text.trim().toLowerCase();
-
   // Format: 2026-01-03
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return true;
 
@@ -42,6 +28,19 @@ function looksLikeDate(text: string): boolean {
 
   return false;
 }
+
+  // Endast acceptera exakt 2026-01-03-format
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return true;
+
+  // Endast acceptera exakt "3 januari 2026"
+  if (/^\d{1,2}\s+(januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december)\s+\d{4}$/.test(t)) {
+    return true;
+  }
+
+  return false;
+}
+
+  
 
 function cleanText(value: any): string | null {
   if (value === null || value === undefined) return null;
