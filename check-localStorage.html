@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>localStorage Checker</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        .button:hover {
+            background: #45a049;
+        }
+        .button.danger {
+            background: #f44336;
+        }
+        .button.danger:hover {
+            background: #da190b;
+        }
+        #output {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+            max-height: 600px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background: #4CAF50;
+            color: white;
+        }
+        tr:nth-child(even) {
+            background: #f9f9f9;
+        }
+        .placeholder {
+            background: #fff3cd;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 localStorage Customer Data Checker</h1>
+
+        <p>Detta verktyg kollar om du har gammal eller felaktig kunddata i webbläsarens cache.</p>
+
+        <div>
+            <button class="button" onclick="checkLocalStorage()">🔍 Kolla localStorage</button>
+            <button class="button" onclick="compareWithSupabase()">⚖️ Jämför med Supabase</button>
+            <button class="button danger" onclick="clearCache()">🗑️ Rensa Cache</button>
+        </div>
+
+        <div id="status"></div>
+        <div id="results"></div>
+        <pre id="output"></pre>
+    </div>
+
+    <script>
+        function log(msg, color = '#d4d4d4') {
+            const output = document.getElementById('output');
+            const line = document.createElement('span');
+            line.style.color = color;
+            line.textContent = msg + '\n';
+            output.appendChild(line);
+        }
+
+        function clearOutput() {
+            document.getElementById('output').innerHTML = '';
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('status').innerHTML = '';
+        }
+
+        function showStatus(msg, type = 'success') {
+            const status = document.getElementById('status');
+            status.innerHTML = `<div class="status ${type}">${msg}</div>`;
+        }
+
+        function checkLocalStorage() {
+            clearOutput();
+            log('='.repeat(60), '#4CAF50');
+            log('🔍 Checking localStorage...', '#4CAF50');
+            log('='.repeat(60), '#4CAF50');
+            log('');
+
+            const KEY = 'paperflow_customers_v1';
+            const rawData = localStorage.getItem(KEY);
+
+            if (!rawData) {
+                log('❌ No customer data found', '#f44336');
+                showStatus('Ingen kunddata hittades i cache. Data laddas från Supabase.', 'warning');
+                return;
+            }
+
+            try {
+                const customers = JSON.parse(rawData);
+                log(`✅ Found ${customers.length} customers`, '#4CAF50');
+                log('');
+
+                let tableHTML = '<table><tr><th>#</th><th>Företag</th><th>Email</th><th>Org.nr</th><th>Status</th></tr>';
+                let issues = 0;
+                let placeholders = 0;
+
+                customers.forEach((c, i) => {
+                    let status = '✅ OK';
+                    let statusClass = '';
+
+                    if (!c.companyName || c.companyName.trim() === '') {
+                        status = '❌ Saknar namn';
+                        statusClass = 'placeholder';
+                        issues++;
+                    } else if (['OKÄNT FÖRETAG', 'Ny kund', 'Namnlös kund'].includes(c.companyName)) {
+                        status = `⚠️ ${c.companyName}`;
+                        statusClass = 'placeholder';
+                        placeholders++;
+                        issues++;
+                    }
+
+                    tableHTML += `<tr>
+                        <td>${i + 1}</td>
+                        <td>${c.companyName || 'N/A'}</td>
+                        <td>${c.email || 'N/A'}</td>
+                        <td>${c.orgNr || 'N/A'}</td>
+                        <td class="${statusClass}">${status}</td>
+                    </tr>`;
+                });
+
+                tableHTML += '</table>';
+                document.getElementById('results').innerHTML = tableHTML;
+
+                log('📊 Statistik:', '#4CAF50');
+                log(`   Totalt: ${customers.length}`);
+                log(`   Med företagsnamn: ${customers.filter(c => c.companyName && c.companyName.trim()).length}`);
+                log(`   Placeholders: ${placeholders}`, placeholders > 0 ? '#ff9800' : '#4CAF50');
+                log(`   Problem: ${issues}`, issues > 0 ? '#f44336' : '#4CAF50');
+
+                if (placeholders > 0) {
+                    log('');
+                    log('⚠️  VARNING: Hittade placeholder-namn!', '#ff9800');
+                    log('   Detta kan vara gammal data från innan fix.', '#ff9800');
+                    log('   Rekommendation: Rensa cache och ladda om.', '#ff9800');
+                    showStatus(`⚠️ Hittade ${placeholders} kund(er) med placeholder-namn. Överväg att rensa cache.`, 'warning');
+                } else if (issues > 0) {
+                    showStatus(`⚠️ Hittade ${issues} kund(er) med problem.`, 'warning');
+                } else {
+                    log('');
+                    log('✅ All data ser bra ut!', '#4CAF50');
+                    showStatus('✅ All kunddata i cache ser bra ut!', 'success');
+                }
+
+            } catch (e) {
+                log('❌ Error: ' + e.message, '#f44336');
+                showStatus('❌ Kunde inte läsa localStorage data. Kan vara korrupt.', 'error');
+            }
+        }
+
+        async function compareWithSupabase() {
+            clearOutput();
+            log('⚖️ Comparing localStorage with Supabase...', '#4CAF50');
+            log('');
+
+            // Get localStorage data
+            const KEY = 'paperflow_customers_v1';
+            const rawData = localStorage.getItem(KEY);
+
+            if (!rawData) {
+                log('❌ No localStorage data to compare', '#f44336');
+                showStatus('Ingen localStorage data att jämföra med.', 'error');
+                return;
+            }
+
+            const localCustomers = JSON.parse(rawData);
+            log(`📦 localStorage: ${localCustomers.length} customers`, '#4CAF50');
+
+            // Fetch from Supabase (requires you're on localhost:3000)
+            try {
+                const response = await fetch('/api/customer-cards/list');
+                if (!response.ok) {
+                    throw new Error('API call failed');
+                }
+
+                const result = await response.json();
+                const supabaseCustomers = result.cards || [];
+
+                log(`☁️  Supabase: ${supabaseCustomers.length} customers`, '#4CAF50');
+                log('');
+
+                // Compare
+                const differences = [];
+
+                localCustomers.forEach(local => {
+                    const remote = supabaseCustomers.find(s => s.id === local.id);
+
+                    if (!remote) {
+                        differences.push({
+                            id: local.id,
+                            issue: 'Only in localStorage',
+                            local: local.companyName,
+                            remote: 'N/A'
+                        });
+                    } else if (local.companyName !== remote.name) {
+                        differences.push({
+                            id: local.id,
+                            issue: 'Company name mismatch',
+                            local: local.companyName,
+                            remote: remote.name
+                        });
+                    }
+                });
+
+                if (differences.length > 0) {
+                    log(`⚠️  Found ${differences.length} difference(s):`, '#ff9800');
+                    differences.forEach(d => {
+                        log('');
+                        log(`ID: ${d.id}`);
+                        log(`Issue: ${d.issue}`, '#ff9800');
+                        log(`localStorage: ${d.local}`);
+                        log(`Supabase: ${d.remote}`);
+                    });
+                    showStatus(`⚠️ Hittade ${differences.length} skillnad(er) mellan cache och databas. Överväg att rensa cache.`, 'warning');
+                } else {
+                    log('✅ localStorage and Supabase are in sync!', '#4CAF50');
+                    showStatus('✅ localStorage och Supabase är synkade!', 'success');
+                }
+
+            } catch (e) {
+                log('❌ Could not fetch from Supabase: ' + e.message, '#f44336');
+                log('Make sure you are on localhost:3000', '#ff9800');
+                showStatus('❌ Kunde inte hämta data från Supabase. Kör du på localhost:3000?', 'error');
+            }
+        }
+
+        function clearCache() {
+            if (!confirm('Är du säker? Detta raderar all cached kunddata.')) {
+                return;
+            }
+
+            clearOutput();
+            log('🗑️ Clearing cache...', '#ff9800');
+
+            const KEY = 'paperflow_customers_v1';
+            localStorage.removeItem(KEY);
+
+            log('✅ Cache cleared!', '#4CAF50');
+            log('');
+            log('Laddar om sidan om 2 sekunder...', '#4CAF50');
+
+            showStatus('✅ Cache rensat! Sidan laddas om...', 'success');
+
+            setTimeout(() => {
+                location.reload();
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
