@@ -4,7 +4,7 @@ import pdfParse from "pdf-parse";
 
 export const runtime = "nodejs";
 
-// Hjälpfunktioner för att extrahera fält från text
+// HjÃ¤lpfunktioner fÃ¶r att extrahera fÃ¤lt frÃ¥n text
 const monthNames = [
   "januari", "februari", "mars", "april", "maj", "juni",
   "juli", "augusti", "september", "oktober", "november", "december",
@@ -22,7 +22,7 @@ function looksLikeDate(text: string): boolean {
     return true;
   }
 
-  // Om texten innehåller en månad + år ’ troligt datum
+  // Om texten innehÃ¥ller en mÃ¥nad + Ã¥r â†’ troligt datum
   if (monthNames.some((m) => t.includes(m)) && /\d{4}/.test(t)) {
     return true;
   }
@@ -43,7 +43,7 @@ function cleanText(value: any): string | null {
   return t;
 }
 
-// Extrahera fält från PDF-text
+// Extrahera fÃ¤lt frÃ¥n PDF-text
 function parseFieldsFromText(text: string) {
   const lines = text.split('\n').map(l => l.trim());
 
@@ -51,15 +51,15 @@ function parseFieldsFromText(text: string) {
   const metadata: any = {};
   const totals: any = {};
 
-  // Sök efter företagsnamn (undvik rader som börjar med "Kund:" eller "Företag:")
+  // SÃ¶k efter fÃ¶retagsnamn (undvik rader som bÃ¶rjar med "Kund:" eller "FÃ¶retag:")
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
-    // Företagsnamn (ofta på egen rad, inte ett datum)
+    // FÃ¶retagsnamn (ofta pÃ¥ egen rad, inte ett datum)
     if (line && !looksLikeDate(line) && line.length > 2 && line.length < 60) {
-      // Kolla om det ser ut som ett företagsnamn (innehåller bokstäver men inte "Offert", "Datum" etc)
-      if (!/^(offert|datum|kund|företag|org\.?nr|kontakt|adress|telefon|e-?post|summa|moms|total):/i.test(line)) {
-        // Om vi inte redan har ett namn och denna rad inte är ett vanligt label
+      // Kolla om det ser ut som ett fÃ¶retagsnamn (innehÃ¥ller bokstÃ¤ver men inte "Offert", "Datum" etc)
+      if (!/^(offert|datum|kund|fÃ¶retag|org\.?nr|kontakt|adress|telefon|e-?post|summa|moms|total):/i.test(line)) {
+        // Om vi inte redan har ett namn och denna rad inte Ã¤r ett vanligt label
         if (!customer.namn && !/^\d+$/.test(line) && line.split(' ').length <= 5) {
           const cleaned = cleanText(line);
           if (cleaned && cleaned !== 'OFFERT') {
@@ -139,7 +139,7 @@ function parseFieldsFromText(text: string) {
       const match = line.match(/:\s*(.+)$/);
       if (match) {
         const dateStr = match[1].trim();
-        // Försök konvertera till ISO-format
+        // FÃ¶rsÃ¶k konvertera till ISO-format
         metadata.date = dateStr;
       }
     }
@@ -173,7 +173,7 @@ function parseFieldsFromText(text: string) {
     }
   }
 
-  // Beräkna brutto om vi har netto och moms
+  // BerÃ¤kna brutto om vi har netto och moms
   if (totals.net && totals.vatAmount) {
     totals.gross = totals.net + totals.vatAmount;
   }
@@ -193,7 +193,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Ladda ner PDF från Supabase Storage
+    // Ladda ner PDF frÃ¥n Supabase Storage
     const { data: fileData, error: downloadError } = await supabaseAdmin.storage
       .from(bucket)
       .download(path);
@@ -210,7 +210,7 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await fileData.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // Extrahera text från PDF
+    // Extrahera text frÃ¥n PDF
     let pdfData;
     try {
       pdfData = await pdfParse(buffer);
@@ -225,7 +225,7 @@ export async function POST(req: NextRequest) {
     const text = pdfData.text;
     console.log("[parse] Extracted text length:", text.length);
 
-    // Parsa fält från texten
+    // Parsa fÃ¤lt frÃ¥n texten
     const parsed = parseFieldsFromText(text);
 
     console.log("[parse] Parsed data:", JSON.stringify(parsed, null, 2));
@@ -233,7 +233,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       parsed,
-      rawText: text, // Inkludera för debugging
+      rawText: text, // Inkludera fÃ¶r debugging
     });
   } catch (error) {
     console.error("[parse] Error:", error);
