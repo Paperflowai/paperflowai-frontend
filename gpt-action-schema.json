@@ -89,11 +89,11 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["textData", "jsonData"],
+                "required": ["textData"],
                 "properties": {
                   "customerId": {
-                    "type": "null",
-                    "description": "Ska alltid vara null för att skapa ny kund"
+                    "type": ["string", "null"],
+                    "description": "Kund-ID om kunden redan finns, annars null eller utelämnas helt för att skapa ny kund"
                   },
                   "textData": {
                     "type": "string",
@@ -101,7 +101,7 @@
                   },
                   "jsonData": {
                     "type": "object",
-                    "required": ["kund", "titel", "summa", "valuta"],
+                    "description": "Strukturerad metadata (optional men rekommenderat för bästa resultat)",
                     "properties": {
                       "titel": {
                         "type": "string",
@@ -136,8 +136,7 @@
                       },
                       "kund": {
                         "type": "object",
-                        "required": ["namn"],
-                        "description": "Kundinformation",
+                        "description": "Kundinformation (namn är starkt rekommenderat)",
                         "properties": {
                           "namn": {
                             "type": "string",
