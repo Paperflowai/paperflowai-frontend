@@ -209,11 +209,32 @@ export async function POST(req: Request) {
 
     // Sätt kund-ID
     if (!customerId) {
-      // Ny kund → skapa id
-      customerId = crypto.randomUUID();
-      console.log("[create-from-gpt] Creating new customer:", customerId);
+      // Kolla om kund med samma företagsnamn redan finns
+      if (companyName && companyName !== "Ny kund" && companyName !== "OKÄNT FÖRETAG") {
+        console.log("[create-from-gpt] 🔍 Söker efter befintlig kund med namn:", companyName);
+
+        const { data: existingCustomer, error: searchError } = await supabaseAdmin
+          .from("customers")
+          .select("id")
+          .eq("company_name", companyName)
+          .limit(1)
+          .maybeSingle();
+
+        if (!searchError && existingCustomer) {
+          customerId = existingCustomer.id;
+          console.log("[create-from-gpt] ✅ Hittade befintlig kund:", customerId);
+        } else {
+          // Ny kund → skapa id
+          customerId = crypto.randomUUID();
+          console.log("[create-from-gpt] ➕ Skapar ny kund:", customerId);
+        }
+      } else {
+        // Företagsnamn saknas eller är placeholder → skapa alltid ny
+        customerId = crypto.randomUUID();
+        console.log("[create-from-gpt] ➕ Skapar ny kund (okänt företagsnamn):", customerId);
+      }
     } else {
-      console.log("[create-from-gpt] Updating existing customer:", customerId);
+      console.log("[create-from-gpt] 📝 Uppdaterar befintlig kund:", customerId);
     }
 
     // 4) Upsert i public.customers (gamla strukturen)
