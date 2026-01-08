@@ -179,6 +179,8 @@ export async function POST(req: Request) {
       kund.contactPerson ??
       null;
 
+    let role = null; // Befattning/titel (VD, Projektledare, etc.)
+
     let email =
       kund.epost ??
       kund.email ??
@@ -255,12 +257,11 @@ export async function POST(req: Request) {
           contactPerson = nameWithTitleMatch[1].trim();
           console.log("[create-from-gpt] 👤 Hittade kontaktperson:", contactPerson);
 
-          // Spara befattning om vi hittar det
+          // Spara befattning separat i role-fältet
           const title = nameWithTitleMatch[2].trim();
           if (title && title.length < 50) { // Sanity check
-            console.log("[create-from-gpt] 💼 Hittade befattning:", title);
-            // Vi kan spara detta i contact_person som "Namn (Befattning)" eller bara kontaktperson
-            contactPerson = `${contactPerson} (${title})`;
+            role = title;
+            console.log("[create-from-gpt] 💼 Hittade befattning:", role);
           }
         } else {
           // Fallback: "Kontaktperson: Namn"
@@ -388,6 +389,7 @@ export async function POST(req: Request) {
 
       // Kontaktperson
       contact_person: contactPerson ?? null,
+      role: role ?? null,
 
       // Kontaktuppgifter / adress
       email: email ?? null,
