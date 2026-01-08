@@ -129,6 +129,21 @@ export async function POST(req: Request) {
 
     let companyName = getCompanyName(kund, safeJson);
 
+    // 🆕 Om jsonData är tomt/saknas → extrahera från textData
+    if (companyName === "Ny kund" && textData) {
+      console.log("[create-from-gpt] ⚠️ jsonData saknar företagsnamn - försöker extrahera från textData...");
+
+      // Sök efter "Kund:" eller "Företag:" i textData
+      const kundMatch = textData.match(/(?:Kund|Företag|Company):\s*([^\n]+)/i);
+      if (kundMatch) {
+        const extractedName = cleanText(kundMatch[1]);
+        if (extractedName && !looksLikeDate(extractedName)) {
+          companyName = extractedName;
+          console.log("[create-from-gpt] ✅ Extraherade företagsnamn från textData:", companyName);
+        }
+      }
+    }
+
     console.log("[create-from-gpt] 🏢 Resultat companyName:", companyName);
 
     // 🛡️ EXTRA SÄKERHET: Om vi fick "Ny kund", försök hitta NÅGOT namn
@@ -154,40 +169,40 @@ export async function POST(req: Request) {
     }
 
 
-    const contactPerson =
+    let contactPerson =
       kund.kontaktperson ??
       kund.contactperson ??
       kund.contactPerson ??
       null;
 
-    const email =
+    let email =
       kund.epost ??
       kund.email ??
       null;
 
-    const phone =
+    let phone =
       kund.telefon ??
       kund.phone ??
       null;
 
-    const address =
+    let address =
       kund.adress ??
       kund.address ??
       null;
 
-    const zip =
+    let zip =
       kund.postnummer ??
       kund.postnr ??
       kund.zip ??
       null;
 
-    const city =
+    let city =
       kund.ort ??
       kund.city ??
       kund.stad ??
       null;
 
-    const orgNr =
+    let orgNr =
       kund.orgnr ??
       kund.org_nr ??
       null;
@@ -196,6 +211,39 @@ export async function POST(req: Request) {
       kund.land ??
       kund.country ??
       "Sverige";
+
+    // 🆕 Om jsonData är tom → extrahera även kontaktuppgifter från textData
+    if (!email && !phone && textData) {
+      console.log("[create-from-gpt] ℹ️ Extraherar kontaktuppgifter från textData...");
+
+      // E-post
+      const emailMatch = textData.match(/(?:E-post|Email|E-mail):\s*([^\n\s]+@[^\n\s]+)/i);
+      if (emailMatch) {
+        email = emailMatch[1].trim();
+        console.log("[create-from-gpt] 📧 Hittade e-post:", email);
+      }
+
+      // Telefon
+      const phoneMatch = textData.match(/(?:Telefon|Tel|Phone):\s*([^\n]+)/i);
+      if (phoneMatch) {
+        phone = phoneMatch[1].trim();
+        console.log("[create-from-gpt] 📞 Hittade telefon:", phone);
+      }
+
+      // Org.nr
+      const orgNrMatch = textData.match(/(?:Org\.?nr|Organisationsnummer):\s*([0-9\-]+)/i);
+      if (orgNrMatch) {
+        orgNr = orgNrMatch[1].trim();
+        console.log("[create-from-gpt] 🏢 Hittade org.nr:", orgNr);
+      }
+
+      // Kontaktperson
+      const contactMatch = textData.match(/(?:Kontaktperson|Kontakt):\s*([^\n,]+)/i);
+      if (contactMatch) {
+        contactPerson = contactMatch[1].trim();
+        console.log("[create-from-gpt] 👤 Hittade kontaktperson:", contactPerson);
+      }
+    }
 
     const customerNumber =
       safeJson.offert?.offertnummer ??
