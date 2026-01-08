@@ -587,17 +587,17 @@ const laddaKunder = async () => {
   companyName: (row.name || row.company_name || '').trim(),  // ← BÅDA
 
       orgNr: row.orgnr || '',
-      contactPerson: '',
-      role: '',
+      contactPerson: row.contact_person || '',
+      role: row.role || '',
       phone: row.phone || '',
       email: row.email || '',
       address: row.address || '',
       zip: row.zip || '',
       city: row.city || '',
       country: row.country || 'Sverige',
-      contactDate: '',
+      contactDate: row.contact_date || '',
       notes: '',
-      customerNumber: '',
+      customerNumber: row.customer_number || '',
     }));
 
     // Filtrera bort demo-kunder
