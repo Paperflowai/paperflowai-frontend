@@ -1,6 +1,3 @@
-src/app/api/offers/create-from-gpt/route.ts
-
-
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
 import crypto from "crypto";
