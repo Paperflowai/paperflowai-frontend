@@ -259,25 +259,61 @@ export async function POST(req: Request) {
         }
       }
 
-      // Adress (format: "Adress: Gatan 1, 123 45 Stad")
-      if (!address) {
-        const addressMatch = textData.match(/(?:Adress|Address):\s*([^,\n]+)/i);
-        if (addressMatch) {
-          address = addressMatch[1].trim();
-          console.log("[create-from-gpt] 🏠 Hittade adress:", address);
+      // Adress med postnummer och ort (format: "Adress: Gatan 1, 123 45 Stad")
+      if (!address || !zip || !city) {
+        const fullAddressMatch = textData.match(/(?:Adress|Address):\s*([^,\n]+),\s*(\d{3}\s?\d{2})\s+([^\n]+)/i);
+        if (fullAddressMatch) {
+          if (!address) {
+            address = fullAddressMatch[1].trim();
+            console.log("[create-from-gpt] 🏠 Hittade adress:", address);
+          }
+          if (!zip) {
+            zip = fullAddressMatch[2].trim();
+            console.log("[create-from-gpt] 📮 Hittade postnummer:", zip);
+          }
+          if (!city) {
+            city = fullAddressMatch[3].trim();
+            console.log("[create-from-gpt] 🏙️ Hittade ort:", city);
+          }
+        } else if (!address) {
+          // Fallback: bara gatuadress
+          const simpleAddressMatch = textData.match(/(?:Adress|Address):\s*([^,\n]+)/i);
+          if (simpleAddressMatch) {
+            address = simpleAddressMatch[1].trim();
+            console.log("[create-from-gpt] 🏠 Hittade adress:", address);
+          }
         }
       }
     }
 
-    const customerNumber =
+    let customerNumber =
       safeJson.offert?.offertnummer ??
       safeJson.offertnummer ??
       null;
 
-    const contactDate =
+    let contactDate =
       safeJson.offert?.datum ??
       safeJson.datum ??
       null;
+
+    // Extrahera offertnummer och datum från textData om de saknas
+    if (textData) {
+      if (!customerNumber) {
+        const offerNumMatch = textData.match(/(?:Offertnummer|Offert-?nr):\s*(OFF-\d{4}-\d{3,4})/i);
+        if (offerNumMatch) {
+          customerNumber = offerNumMatch[1].trim();
+          console.log("[create-from-gpt] 📋 Hittade offertnummer:", customerNumber);
+        }
+      }
+
+      if (!contactDate) {
+        const dateMatch = textData.match(/(?:Datum|Date):\s*(\d{4}-\d{2}-\d{2})/i);
+        if (dateMatch) {
+          contactDate = dateMatch[1].trim();
+          console.log("[create-from-gpt] 📅 Hittade datum:", contactDate);
+        }
+      }
+    }
 
     // Sätt kund-ID
     if (!customerId) {
