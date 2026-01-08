@@ -247,15 +247,28 @@ export async function POST(req: Request) {
         }
       }
 
-      // Kontaktperson (format: "Namn, Kontaktperson" eller "Kontaktperson: Namn")
+      // Kontaktperson och befattning (format: "Namn Efternamn, Befattning")
       if (!contactPerson) {
-        let contactMatch = textData.match(/([A-ZÅÄÖa-zåäö]+ [A-ZÅÄÖa-zåäö]+),\s*Kontaktperson/i);
-        if (!contactMatch) {
-          contactMatch = textData.match(/(?:Kontaktperson|Kontakt):\s*([^\n,]+)/i);
-        }
-        if (contactMatch) {
-          contactPerson = contactMatch[1].trim();
+        // Efter företagsnamnet, hitta rad med format "Namn Efternamn, Befattning"
+        const nameWithTitleMatch = textData.match(/Till:\s*\n[^\n]+\n([A-ZÅÄÖ][a-zåäö]+ [A-ZÅÄÖ][a-zåäö]+),\s*([^\n]+)/i);
+        if (nameWithTitleMatch) {
+          contactPerson = nameWithTitleMatch[1].trim();
           console.log("[create-from-gpt] 👤 Hittade kontaktperson:", contactPerson);
+
+          // Spara befattning om vi hittar det
+          const title = nameWithTitleMatch[2].trim();
+          if (title && title.length < 50) { // Sanity check
+            console.log("[create-from-gpt] 💼 Hittade befattning:", title);
+            // Vi kan spara detta i contact_person som "Namn (Befattning)" eller bara kontaktperson
+            contactPerson = `${contactPerson} (${title})`;
+          }
+        } else {
+          // Fallback: "Kontaktperson: Namn"
+          const contactMatch = textData.match(/(?:Kontaktperson|Kontakt):\s*([^\n,]+)/i);
+          if (contactMatch) {
+            contactPerson = contactMatch[1].trim();
+            console.log("[create-from-gpt] 👤 Hittade kontaktperson:", contactPerson);
+          }
         }
       }
 
