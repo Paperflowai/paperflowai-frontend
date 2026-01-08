@@ -261,14 +261,31 @@ export async function POST(req: Request) {
       if (companyName && companyName !== "Ny kund" && companyName !== "OKÄNT FÖRETAG") {
         console.log("[create-from-gpt] 🔍 Söker efter befintlig kund med namn:", companyName);
 
-        const { data: existingCustomer, error: searchError } = await supabaseAdmin
+        // Normalisera namn för bättre matchning (trimma, lowercase)
+        const normalizedName = companyName.trim().toLowerCase();
+
+        // Sök med exakt matchning först
+        let { data: existingCustomer, error: searchError } = await supabaseAdmin
           .from("customers")
           .select("id")
           .eq("company_name", companyName)
           .limit(1)
           .maybeSingle();
 
-        if (!searchError && existingCustomer) {
+        // Om inte hittat, försök case-insensitive sökning
+        if (!existingCustomer && !searchError) {
+          const { data: customers } = await supabaseAdmin
+            .from("customers")
+            .select("id, company_name")
+            .ilike("company_name", companyName);
+
+          if (customers && customers.length > 0) {
+            existingCustomer = customers[0];
+            console.log("[create-from-gpt] 🔍 Hittade via case-insensitive:", existingCustomer.id);
+          }
+        }
+
+        if (existingCustomer) {
           customerId = existingCustomer.id;
           console.log("[create-from-gpt] ✅ Hittade befintlig kund:", customerId);
         } else {
