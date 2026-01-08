@@ -96,8 +96,19 @@ type GPTOfferBody = {
   textData: string;
 };
 
+// CORS headers for GPT Actions
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
 function bad(msg: string, code = 400) {
-  return NextResponse.json({ ok: false, error: msg }, { status: code });
+  return NextResponse.json({ ok: false, error: msg }, { status: code, headers: corsHeaders });
+}
+
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders });
 }
 
 export async function POST(req: Request) {
@@ -387,7 +398,7 @@ export async function POST(req: Request) {
         // ✅ Inkludera customerData för autofyll på frontend
         customerData,
       },
-      { status: 200 }
+      { status: 200, headers: corsHeaders }
     );
   } catch (e: any) {
     console.error("create-from-gpt error:", e);
