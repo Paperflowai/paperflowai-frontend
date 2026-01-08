@@ -130,8 +130,15 @@ export async function POST(req: Request) {
     if (companyName === "Ny kund" && textData) {
       console.log("[create-from-gpt] ⚠️ jsonData saknar företagsnamn - försöker extrahera från textData...");
 
-      // Sök efter "Kund:" eller "Företag:" i textData
-      const kundMatch = textData.match(/(?:Kund|Företag|Company):\s*([^\n]+)/i);
+      // Sök efter företagsnamn i olika format
+      // Format 1: "Kund: XYZ AB" eller "Företag: XYZ AB"
+      let kundMatch = textData.match(/(?:Kund|Företag|Company):\s*([^\n]+)/i);
+
+      // Format 2: "Till:\nXYZ AB" (namn på nästa rad efter Till:)
+      if (!kundMatch) {
+        kundMatch = textData.match(/Till:\s*\n\s*([^\n]+)/i);
+      }
+
       if (kundMatch) {
         const extractedName = cleanText(kundMatch[1]);
         if (extractedName && !looksLikeDate(extractedName)) {
@@ -210,35 +217,55 @@ export async function POST(req: Request) {
       "Sverige";
 
     // 🆕 Om jsonData är tom → extrahera även kontaktuppgifter från textData
-    if (!email && !phone && textData) {
+    if ((!email || !phone || !contactPerson) && textData) {
       console.log("[create-from-gpt] ℹ️ Extraherar kontaktuppgifter från textData...");
 
-      // E-post
-      const emailMatch = textData.match(/(?:E-post|Email|E-mail):\s*([^\n\s]+@[^\n\s]+)/i);
-      if (emailMatch) {
-        email = emailMatch[1].trim();
-        console.log("[create-from-gpt] 📧 Hittade e-post:", email);
+      // E-post (flera format)
+      if (!email) {
+        const emailMatch = textData.match(/(?:E-post|Email|E-mail)?:?\s*([^\n\s]+@[^\n\s]+)/i);
+        if (emailMatch) {
+          email = emailMatch[1].trim();
+          console.log("[create-from-gpt] 📧 Hittade e-post:", email);
+        }
       }
 
       // Telefon
-      const phoneMatch = textData.match(/(?:Telefon|Tel|Phone):\s*([^\n]+)/i);
-      if (phoneMatch) {
-        phone = phoneMatch[1].trim();
-        console.log("[create-from-gpt] 📞 Hittade telefon:", phone);
+      if (!phone) {
+        const phoneMatch = textData.match(/(?:Telefon|Tel|Phone):\s*([^\n]+)/i);
+        if (phoneMatch) {
+          phone = phoneMatch[1].trim();
+          console.log("[create-from-gpt] 📞 Hittade telefon:", phone);
+        }
       }
 
       // Org.nr
-      const orgNrMatch = textData.match(/(?:Org\.?nr|Organisationsnummer):\s*([0-9\-]+)/i);
-      if (orgNrMatch) {
-        orgNr = orgNrMatch[1].trim();
-        console.log("[create-from-gpt] 🏢 Hittade org.nr:", orgNr);
+      if (!orgNr) {
+        const orgNrMatch = textData.match(/(?:Org\.?nr|Organisationsnummer):\s*([0-9\-]+)/i);
+        if (orgNrMatch) {
+          orgNr = orgNrMatch[1].trim();
+          console.log("[create-from-gpt] 🏢 Hittade org.nr:", orgNr);
+        }
       }
 
-      // Kontaktperson
-      const contactMatch = textData.match(/(?:Kontaktperson|Kontakt):\s*([^\n,]+)/i);
-      if (contactMatch) {
-        contactPerson = contactMatch[1].trim();
-        console.log("[create-from-gpt] 👤 Hittade kontaktperson:", contactPerson);
+      // Kontaktperson (format: "Namn, Kontaktperson" eller "Kontaktperson: Namn")
+      if (!contactPerson) {
+        let contactMatch = textData.match(/([A-ZÅÄÖa-zåäö]+ [A-ZÅÄÖa-zåäö]+),\s*Kontaktperson/i);
+        if (!contactMatch) {
+          contactMatch = textData.match(/(?:Kontaktperson|Kontakt):\s*([^\n,]+)/i);
+        }
+        if (contactMatch) {
+          contactPerson = contactMatch[1].trim();
+          console.log("[create-from-gpt] 👤 Hittade kontaktperson:", contactPerson);
+        }
+      }
+
+      // Adress (format: "Adress: Gatan 1, 123 45 Stad")
+      if (!address) {
+        const addressMatch = textData.match(/(?:Adress|Address):\s*([^,\n]+)/i);
+        if (addressMatch) {
+          address = addressMatch[1].trim();
+          console.log("[create-from-gpt] 🏠 Hittade adress:", address);
+        }
       }
     }
 
