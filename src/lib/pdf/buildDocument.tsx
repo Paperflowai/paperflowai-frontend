@@ -1,6 +1,7 @@
 // src/lib/pdf/buildDocument.tsx
 import { pdf, Document, Page, Text, StyleSheet, View } from '@react-pdf/renderer';
 import OfferPdf from '@/lib/pdf/OfferPdf';
+import ProfessionalOfferPdf from '@/lib/pdf/ProfessionalOfferPdf';
 
 export type DocumentType = 'offer' | 'order' | 'invoice' | 'orderConfirmation';
 
@@ -159,14 +160,16 @@ export async function buildDocument(
       const textData: string | undefined = data?.textData || data?.data?.textData;
 
       if (textData && textData.trim().length > 0) {
-        // GPT-flödet – vi har färdig offert-text
+        // GPT-flödet – använd professionell mall
         docElement = (
-          <Document>
-            <Page size="A4" style={styles.page}>
-              <Text style={styles.title}>{data.title ?? 'Offert'}</Text>
-              <Text style={styles.body}>{textData}</Text>
-            </Page>
-          </Document>
+          <ProfessionalOfferPdf
+            textData={textData}
+            companyInfo={{
+              name: 'PaperflowAI',
+              email: 'info@paperflowai.se',
+              website: 'www.paperflowai.se'
+            }}
+          />
         );
       } else {
         // Bakåtkompatibelt – använd OfferPdf-mallen
