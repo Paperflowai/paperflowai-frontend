@@ -300,6 +300,15 @@ export async function POST(req: Request) {
         }
       }
 
+      // Befattning från textData (separat rad)
+      if (!role) {
+        const roleMatch = textData.match(/(?:Befattning|Titel|Roll):\s*([^\n]+)/i);
+        if (roleMatch) {
+          role = roleMatch[1].trim();
+          console.log("[create-from-gpt] 💼 Hittade befattning (separat):", role);
+        }
+      }
+
       // Om contactPerson kom från jsonData och innehåller komma, splitta den
       if (contactPerson && contactPerson.includes(',')) {
         const parts = contactPerson.split(',').map(p => p.trim());
@@ -311,29 +320,43 @@ export async function POST(req: Request) {
         console.log("[create-from-gpt] 👤 Rensat kontaktperson:", contactPerson);
       }
 
-      // Adress med postnummer och ort (format: "Adress: Gatan 1, 123 45 Stad")
-      if (!address || !zip || !city) {
-        const fullAddressMatch = textData.match(/(?:Adress|Address):\s*([^,\n]+),\s*(\d{3}\s?\d{2})\s+([^\n]+)/i);
-        if (fullAddressMatch) {
-          if (!address) {
-            address = fullAddressMatch[1].trim();
-            console.log("[create-from-gpt] 🏠 Hittade adress:", address);
-          }
+      // Adress från textData
+      if (!address) {
+        const addressMatch = textData.match(/(?:Adress|Address):\s*([^\n]+)/i);
+        if (addressMatch) {
+          address = addressMatch[1].trim();
+          console.log("[create-from-gpt] 🏠 Hittade adress:", address);
+        }
+      }
+
+      // Postnummer och ort från textData
+      if (!zip || !city) {
+        // Format 1: "Postnummer/Ort: 123 45 Stockholm"
+        let zipCityMatch = textData.match(/(?:Postnummer\/Ort|Postnummer|Zipcode):\s*(\d{3}\s?\d{2})\s+([^\n]+)/i);
+
+        // Format 2: "Adress: Gatan 1, 123 45 Stockholm"
+        if (!zipCityMatch) {
+          zipCityMatch = textData.match(/(?:Adress|Address):[^\n]*,\s*(\d{3}\s?\d{2})\s+([^\n]+)/i);
+        }
+
+        if (zipCityMatch) {
           if (!zip) {
-            zip = fullAddressMatch[2].trim();
+            zip = zipCityMatch[1].trim();
             console.log("[create-from-gpt] 📮 Hittade postnummer:", zip);
           }
           if (!city) {
-            city = fullAddressMatch[3].trim();
+            city = zipCityMatch[2].trim();
             console.log("[create-from-gpt] 🏙️ Hittade ort:", city);
           }
-        } else if (!address) {
-          // Fallback: bara gatuadress
-          const simpleAddressMatch = textData.match(/(?:Adress|Address):\s*([^,\n]+)/i);
-          if (simpleAddressMatch) {
-            address = simpleAddressMatch[1].trim();
-            console.log("[create-from-gpt] 🏠 Hittade adress:", address);
-          }
+        }
+      }
+
+      // Fallback: Separat ort-rad
+      if (!city) {
+        const cityMatch = textData.match(/(?:Ort|Stad|City):\s*([^\n]+)/i);
+        if (cityMatch) {
+          city = cityMatch[1].trim();
+          console.log("[create-from-gpt] 🏙️ Hittade ort (separat):", city);
         }
       }
     }
