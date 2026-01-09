@@ -126,13 +126,28 @@ export async function POST(req: Request) {
 
     let companyName = getCompanyName(kund, safeJson);
 
+    // 🔄 Om jsonData innehåller "Namn, Företag AB" → splitta och ta företagsnamnet
+    if (companyName && companyName.includes(',')) {
+      const parts = companyName.split(',').map(p => p.trim());
+      // Anta att företagsnamnet kommer efter kommatecknet och innehåller AB/HB/KB
+      const companyPart = parts.find(p => /\b(AB|HB|KB|Aktiebolag)\b/i.test(p));
+      if (companyPart) {
+        companyName = companyPart;
+        console.log("[create-from-gpt] ✅ Extraherade företagsnamn från komma-separerad sträng:", companyName);
+      } else {
+        // Fallback: ta sista delen efter komma
+        companyName = parts[parts.length - 1];
+        console.log("[create-from-gpt] ✅ Tog sista delen efter komma:", companyName);
+      }
+    }
+
     // 🆕 Om jsonData är tomt/saknas → extrahera från textData
     if (companyName === "Ny kund" && textData) {
       console.log("[create-from-gpt] ⚠️ jsonData saknar företagsnamn - försöker extrahera från textData...");
 
       // Sök efter företagsnamn i olika format
-      // Format 1: "Kund: XYZ AB" eller "Företag: XYZ AB"
-      let kundMatch = textData.match(/(?:Kund|Företag|Company):\s*([^\n]+)/i);
+      // Format 1: "Företag: XYZ AB"
+      let kundMatch = textData.match(/(?:Företag|Company):\s*([^\n]+)/i);
 
       // Format 2: "Till:\nXYZ AB" (namn på nästa rad efter Till:)
       if (!kundMatch) {
@@ -178,6 +193,17 @@ export async function POST(req: Request) {
       kund.contactperson ??
       kund.contactPerson ??
       null;
+
+    // Om kontaktperson saknas MEN kund.namn innehåller komma, extrahera person från där
+    if (!contactPerson && kund?.namn && typeof kund.namn === 'string' && kund.namn.includes(',')) {
+      const parts = kund.namn.split(',').map(p => p.trim());
+      // Första delen är förmodligen kontaktperson (om den inte innehåller AB/HB/KB)
+      const personPart = parts.find(p => !/\b(AB|HB|KB|Aktiebolag)\b/i.test(p));
+      if (personPart) {
+        contactPerson = personPart;
+        console.log("[create-from-gpt] 👤 Extraherade kontaktperson från kund.namn:", contactPerson);
+      }
+    }
 
     let role = null; // Befattning/titel (VD, Projektledare, etc.)
 
@@ -249,28 +275,40 @@ export async function POST(req: Request) {
         }
       }
 
-      // Kontaktperson och befattning (format: "Namn Efternamn, Befattning")
+      // Kontaktperson från textData
       if (!contactPerson) {
-        // Efter företagsnamnet, hitta rad med format "Namn Efternamn, Befattning"
-        const nameWithTitleMatch = textData.match(/Till:\s*\n[^\n]+\n([A-ZÅÄÖ][a-zåäö]+ [A-ZÅÄÖ][a-zåäö]+),\s*([^\n]+)/i);
-        if (nameWithTitleMatch) {
-          contactPerson = nameWithTitleMatch[1].trim();
-          console.log("[create-from-gpt] 👤 Hittade kontaktperson:", contactPerson);
+        // Format 1: "Kontaktperson: Anna Sjöberg"
+        let contactMatch = textData.match(/(?:Kontaktperson|Kontakt):\s*([^\n]+)/i);
 
-          // Spara befattning separat i role-fältet
-          const title = nameWithTitleMatch[2].trim();
-          if (title && title.length < 50) { // Sanity check
-            role = title;
-            console.log("[create-from-gpt] 💼 Hittade befattning:", role);
-          }
+        if (contactMatch) {
+          contactPerson = contactMatch[1].trim();
+          console.log("[create-from-gpt] 👤 Hittade kontaktperson:", contactPerson);
         } else {
-          // Fallback: "Kontaktperson: Namn"
-          const contactMatch = textData.match(/(?:Kontaktperson|Kontakt):\s*([^\n,]+)/i);
-          if (contactMatch) {
-            contactPerson = contactMatch[1].trim();
-            console.log("[create-from-gpt] 👤 Hittade kontaktperson:", contactPerson);
+          // Format 2: Efter företagsnamnet, rad med "Namn Efternamn, Befattning"
+          const nameWithTitleMatch = textData.match(/Till:\s*\n[^\n]+\n([A-ZÅÄÖ][a-zåäö]+ [A-ZÅÄÖ][a-zåäö]+),\s*([^\n]+)/i);
+          if (nameWithTitleMatch) {
+            contactPerson = nameWithTitleMatch[1].trim();
+            console.log("[create-from-gpt] 👤 Hittade kontaktperson (format 2):", contactPerson);
+
+            // Spara befattning separat i role-fältet
+            const title = nameWithTitleMatch[2].trim();
+            if (title && title.length < 50) {
+              role = title;
+              console.log("[create-from-gpt] 💼 Hittade befattning:", role);
+            }
           }
         }
+      }
+
+      // Om contactPerson kom från jsonData och innehåller komma, splitta den
+      if (contactPerson && contactPerson.includes(',')) {
+        const parts = contactPerson.split(',').map(p => p.trim());
+        contactPerson = parts[0]; // Ta första delen (namnet)
+        if (!role && parts[1]) {
+          role = parts[1]; // Ta andra delen som befattning om den finns
+          console.log("[create-from-gpt] 💼 Extraherade befattning från komma:", role);
+        }
+        console.log("[create-from-gpt] 👤 Rensat kontaktperson:", contactPerson);
       }
 
       // Adress med postnummer och ort (format: "Adress: Gatan 1, 123 45 Stad")
@@ -313,7 +351,14 @@ export async function POST(req: Request) {
     // Extrahera offertnummer och datum från textData om de saknas
     if (textData) {
       if (!customerNumber) {
-        const offerNumMatch = textData.match(/(?:Offertnummer|Offert-?nr):\s*(OFF-\d{4}-\d{3,4})/i);
+        // Format 1: "OFF-2026-001" eller "OFF-2026-0001"
+        let offerNumMatch = textData.match(/(?:Offertnummer|Offert-?nr):\s*(OFF-\d{4}-\d{3,4})/i);
+
+        // Format 2: Bara "2026-001" utan "OFF-" prefix
+        if (!offerNumMatch) {
+          offerNumMatch = textData.match(/(?:Offertnummer|Offert-?nr):\s*(\d{4}-\d{3,4})/i);
+        }
+
         if (offerNumMatch) {
           customerNumber = offerNumMatch[1].trim();
           console.log("[create-from-gpt] 📋 Hittade offertnummer:", customerNumber);
@@ -321,8 +366,30 @@ export async function POST(req: Request) {
       }
 
       if (!contactDate) {
-        const dateMatch = textData.match(/(?:Datum|Date):\s*(\d{4}-\d{2}-\d{2})/i);
-        if (dateMatch) {
+        // Format 1: "2026-01-09" (ISO-format)
+        let dateMatch = textData.match(/(?:Datum|Date):\s*(\d{4}-\d{2}-\d{2})/i);
+
+        // Format 2: "9 januari 2026" (svensk text)
+        if (!dateMatch) {
+          const textDateMatch = textData.match(/(?:Datum|Date):\s*(\d{1,2})\s+(januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december)\s+(\d{4})/i);
+          if (textDateMatch) {
+            const day = textDateMatch[1].padStart(2, '0');
+            const monthName = textDateMatch[2].toLowerCase();
+            const year = textDateMatch[3];
+
+            const monthMap: Record<string, string> = {
+              januari: '01', februari: '02', mars: '03', april: '04',
+              maj: '05', juni: '06', juli: '07', augusti: '08',
+              september: '09', oktober: '10', november: '11', december: '12'
+            };
+
+            const month = monthMap[monthName];
+            if (month) {
+              contactDate = `${year}-${month}-${day}`;
+              console.log("[create-from-gpt] 📅 Konverterade datum från text:", contactDate);
+            }
+          }
+        } else {
           contactDate = dateMatch[1].trim();
           console.log("[create-from-gpt] 📅 Hittade datum:", contactDate);
         }
