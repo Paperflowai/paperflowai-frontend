@@ -396,6 +396,25 @@ export async function POST(req: Request) {
       }
     }
 
+    // 🆕 Auto-generera kundnummer om det fortfarande saknas efter alla extraktioner
+    if (!customerNumber) {
+      const currentYear = new Date().getFullYear();
+
+      // Räkna befintliga kunder för detta år (baserat på customer_number-format KND-YYYY-XXXX)
+      const { data: existingCustomers, error: countError } = await supabaseAdmin
+        .from("customers")
+        .select("customer_number")
+        .like("customer_number", `KND-${currentYear}-%`);
+
+      if (countError) {
+        console.warn("[create-from-gpt] Kunde inte räkna befintliga kundnummer:", countError.message);
+      }
+
+      const nextNumber = (existingCustomers?.length || 0) + 1;
+      customerNumber = `KND-${currentYear}-${String(nextNumber).padStart(4, '0')}`;
+      console.log("[create-from-gpt] 🔢 Auto-genererat kundnummer:", customerNumber);
+    }
+
     // Sätt kund-ID
     if (!customerId) {
       // Kolla om kund med samma företagsnamn redan finns
