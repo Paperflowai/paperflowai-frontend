@@ -205,7 +205,11 @@ export async function POST(req: Request) {
       }
     }
 
-    let role = null; // Befattning/titel (VD, Projektledare, etc.)
+    let role =
+      kund.role ??
+      kund.befattning ??
+      kund.titel ??
+      null; // Befattning/titel (VD, Projektledare, etc.)
 
     let email =
       kund.epost ??
@@ -236,6 +240,7 @@ export async function POST(req: Request) {
 
     let orgNr =
       kund.orgnr ??
+      kund.orgNr ??
       kund.org_nr ??
       null;
 
@@ -282,19 +287,35 @@ export async function POST(req: Request) {
 
         if (contactMatch) {
           contactPerson = contactMatch[1].trim();
-          console.log("[create-from-gpt] 👤 Hittade kontaktperson:", contactPerson);
+          console.log("[create-from-gpt] 👤 Hittade kontaktperson (med kolon):", contactPerson);
         } else {
-          // Format 2: Efter företagsnamnet, rad med "Namn Efternamn, Befattning"
-          const nameWithTitleMatch = textData.match(/Till:\s*\n[^\n]+\n([A-ZÅÄÖ][a-zåäö]+ [A-ZÅÄÖ][a-zåäö]+),\s*([^\n]+)/i);
-          if (nameWithTitleMatch) {
-            contactPerson = nameWithTitleMatch[1].trim();
-            console.log("[create-from-gpt] 👤 Hittade kontaktperson (format 2):", contactPerson);
+          // Format 2: "kontaktperson Anna Andersson, VD" (utan kolon, med befattning)
+          const noColonMatch = textData.match(/(?:kontaktperson|kontakt)\s+([A-ZÅÄÖ][a-zåäö]+\s+[A-ZÅÄÖ][a-zåäö]+)(?:,\s*([^\n.,]+))?/i);
+          if (noColonMatch) {
+            contactPerson = noColonMatch[1].trim();
+            console.log("[create-from-gpt] 👤 Hittade kontaktperson (utan kolon):", contactPerson);
 
-            // Spara befattning separat i role-fältet
-            const title = nameWithTitleMatch[2].trim();
-            if (title && title.length < 50) {
-              role = title;
-              console.log("[create-from-gpt] 💼 Hittade befattning:", role);
+            // Extrahera befattning om den finns efter komma
+            if (noColonMatch[2] && !role) {
+              const extractedRole = noColonMatch[2].trim();
+              if (extractedRole.length < 50) {
+                role = extractedRole;
+                console.log("[create-from-gpt] 💼 Hittade befattning (samma rad):", role);
+              }
+            }
+          } else {
+            // Format 3: Efter företagsnamnet, rad med "Namn Efternamn, Befattning"
+            const nameWithTitleMatch = textData.match(/Till:\s*\n[^\n]+\n([A-ZÅÄÖ][a-zåäö]+ [A-ZÅÄÖ][a-zåäö]+),\s*([^\n]+)/i);
+            if (nameWithTitleMatch) {
+              contactPerson = nameWithTitleMatch[1].trim();
+              console.log("[create-from-gpt] 👤 Hittade kontaktperson (format 3):", contactPerson);
+
+              // Spara befattning separat i role-fältet
+              const title = nameWithTitleMatch[2].trim();
+              if (title && title.length < 50) {
+                role = title;
+                console.log("[create-from-gpt] 💼 Hittade befattning:", role);
+              }
             }
           }
         }
