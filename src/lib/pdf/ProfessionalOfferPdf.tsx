@@ -200,8 +200,23 @@ const styles = StyleSheet.create({
   },
 });
 
+interface CustomerData {
+  companyName: string;
+  orgNr?: string | null;
+  contactPerson?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  zip?: string | null;
+  city?: string | null;
+  customerNumber?: string | null;
+  contactDate?: string | null;
+  role?: string | null;
+}
+
 interface ProfessionalOfferPdfProps {
-  textData: string;
+  customer?: CustomerData;  // ✅ Strukturerad data (prioriteras)
+  textData: string;         // ✅ Används bara för beskrivning/fallback
   companyInfo?: {
     name: string;
     address?: string;
@@ -314,6 +329,7 @@ function parseOfferText(text: string) {
 }
 
 const ProfessionalOfferPdf: React.FC<ProfessionalOfferPdfProps> = ({
+  customer,
   textData,
   companyInfo = {
     name: 'PaperflowAI',
@@ -321,8 +337,25 @@ const ProfessionalOfferPdf: React.FC<ProfessionalOfferPdfProps> = ({
     website: 'www.paperflowai.se'
   }
 }) => {
-  const parsed = parseOfferText(textData);
+  // ✅ PRIORITERA strukturerad customer-data, fallback till textData-parsing
+  const parsed = customer ? null : parseOfferText(textData);
   const today = new Date().toLocaleDateString('sv-SE');
+
+  // Använd customer-data om tillgänglig, annars parsed från text
+  const customerData = customer ? {
+    name: customer.companyName,
+    contact: customer.contactPerson,
+    role: customer.role,
+    orgNr: customer.orgNr,
+    address: customer.address,
+    zip: customer.zip,
+    city: customer.city,
+    phone: customer.phone,
+    email: customer.email,
+  } : parsed?.customer || {};
+
+  const offerDate = customer?.contactDate || parsed?.date || today;
+  const offerNumber = customer?.customerNumber || parsed?.offerNumber;
 
   return (
     <Document>
@@ -343,22 +376,26 @@ const ProfessionalOfferPdf: React.FC<ProfessionalOfferPdfProps> = ({
 
         {/* INFO BOXES */}
         <View style={styles.infoRow}>
-          {/* Kundinfo */}
+          {/* Kundinfo - ✅ Använder customerData från strukturerad source */}
           <View style={styles.infoBox}>
             <Text style={styles.infoTitle}>KUND</Text>
-            {parsed.customer.name && <Text style={styles.infoText}>{parsed.customer.name}</Text>}
-            {parsed.customer.contact && <Text style={styles.infoText}>{parsed.customer.contact}</Text>}
-            {parsed.customer.orgNr && <Text style={styles.infoText}>Org.nr: {parsed.customer.orgNr}</Text>}
-            {parsed.customer.address && <Text style={styles.infoText}>{parsed.customer.address}</Text>}
-            {parsed.customer.phone && <Text style={styles.infoText}>Tel: {parsed.customer.phone}</Text>}
-            {parsed.customer.email && <Text style={styles.infoText}>E-post: {parsed.customer.email}</Text>}
+            {customerData.name && <Text style={styles.infoText}>{customerData.name}</Text>}
+            {customerData.contact && <Text style={styles.infoText}>{customerData.contact}</Text>}
+            {customerData.role && <Text style={styles.infoText}>{customerData.role}</Text>}
+            {customerData.orgNr && <Text style={styles.infoText}>Org.nr: {customerData.orgNr}</Text>}
+            {customerData.address && <Text style={styles.infoText}>{customerData.address}</Text>}
+            {customerData.zip && customerData.city && (
+              <Text style={styles.infoText}>{customerData.zip} {customerData.city}</Text>
+            )}
+            {customerData.phone && <Text style={styles.infoText}>Tel: {customerData.phone}</Text>}
+            {customerData.email && <Text style={styles.infoText}>E-post: {customerData.email}</Text>}
           </View>
 
-          {/* Offertinfo */}
+          {/* Offertinfo - ✅ Använder strukturerad data */}
           <View style={styles.infoBoxRight}>
             <Text style={styles.infoTitle}>OFFERTINFORMATION</Text>
-            <Text style={styles.infoText}>Datum: {parsed.date || today}</Text>
-            {parsed.offerNumber && <Text style={styles.infoText}>Offertnummer: {parsed.offerNumber}</Text>}
+            <Text style={styles.infoText}>Datum: {offerDate}</Text>
+            {offerNumber && <Text style={styles.infoText}>Offertnummer: {offerNumber}</Text>}
             <Text style={styles.infoText}>Giltig till: {new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('sv-SE')}</Text>
           </View>
         </View>
@@ -369,8 +406,8 @@ const ProfessionalOfferPdf: React.FC<ProfessionalOfferPdfProps> = ({
           <Text style={styles.bodyText}>{textData}</Text>
         </View>
 
-        {/* SUMMARY BOX */}
-        {(parsed.summary.subtotal || parsed.summary.total) && (
+        {/* SUMMARY BOX - från textData om tillgänglig */}
+        {(parsed?.summary?.subtotal || parsed?.summary?.total) && (
           <View style={styles.summaryBox}>
             {parsed.summary.subtotal && (
               <View style={styles.summaryRow}>
@@ -393,8 +430,8 @@ const ProfessionalOfferPdf: React.FC<ProfessionalOfferPdfProps> = ({
           </View>
         )}
 
-        {/* TERMS */}
-        {parsed.terms.length > 0 && (
+        {/* TERMS - från textData om tillgänglig */}
+        {parsed?.terms && parsed.terms.length > 0 && (
           <View style={styles.termsSection}>
             <Text style={styles.termsTitle}>VILLKOR</Text>
             {parsed.terms.map((term: string, idx: number) => (

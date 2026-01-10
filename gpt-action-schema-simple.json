@@ -1,0 +1,108 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PaperflowAI API",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://paperflowai-frontend.vercel.app"
+    }
+  ],
+  "paths": {
+    "/api/offers/create-from-gpt": {
+      "post": {
+        "operationId": "createOfferFromGpt",
+        "summary": "Create offer from GPT",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["textData"],
+                "properties": {
+                  "textData": {
+                    "type": "string",
+                    "description": "Full offer text for PDF generation"
+                  },
+                  "jsonData": {
+                    "type": "object",
+                    "description": "Structured metadata (recommended)",
+                    "properties": {
+                      "titel": {
+                        "type": "string"
+                      },
+                      "summa": {
+                        "type": "number"
+                      },
+                      "valuta": {
+                        "type": "string"
+                      },
+                      "kund": {
+                        "type": "object",
+                        "properties": {
+                          "namn": {
+                            "type": "string",
+                            "description": "Company name (IMPORTANT: send company name here, NEVER a date)"
+                          },
+                          "orgnr": {
+                            "type": "string"
+                          },
+                          "kontaktperson": {
+                            "type": "string"
+                          },
+                          "epost": {
+                            "type": "string"
+                          },
+                          "telefon": {
+                            "type": "string"
+                          },
+                          "adress": {
+                            "type": "string"
+                          },
+                          "postnummer": {
+                            "type": "string"
+                          },
+                          "ort": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "customerId": {
+                      "type": "string"
+                    },
+                    "offerId": {
+                      "type": "string"
+                    },
+                    "pdfUrl": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

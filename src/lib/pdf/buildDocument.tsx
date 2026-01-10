@@ -158,9 +158,36 @@ export async function buildDocument(
     case 'orderConfirmation':
       // Använd befintlig OfferPdf för offer och orderConfirmation
       const textData: string | undefined = data?.textData || data?.data?.textData;
+      const customer = data?.customer;
 
-      if (textData && textData.trim().length > 0) {
-        // GPT-flödet – använd professionell mall
+      if (customer && customer.companyName) {
+        // ✅ GPT-flödet – använd strukturerad customerData (mobil-säker!)
+        docElement = (
+          <ProfessionalOfferPdf
+            customer={{
+              companyName: customer.companyName,
+              orgNr: customer.orgNr,
+              contactPerson: customer.contactPerson,
+              email: customer.email,
+              phone: customer.phone,
+              address: customer.address,
+              zip: customer.zip,
+              city: customer.city,
+              customerNumber: customer.customerNumber,
+              contactDate: customer.contactDate,
+              role: customer.role,
+            }}
+            textData={textData || ''}
+            companyInfo={{
+              name: 'PaperflowAI',
+              email: 'info@paperflowai.se',
+              website: 'www.paperflowai.se'
+            }}
+          />
+        );
+      } else if (textData && textData.trim().length > 0) {
+        // ⚠️ Fallback: Om ingen customer-data finns, parsa textData (legacy)
+        console.warn('[buildDocument] Ingen customer-data, använder textData-parsing (instabilt!)');
         docElement = (
           <ProfessionalOfferPdf
             textData={textData}

@@ -459,6 +459,12 @@ export async function POST(req: Request) {
       console.log("[create-from-gpt] 🔢 Auto-genererat kundnummer:", customerNumber);
     }
 
+    // 🆕 Lägg till dagens datum om det saknas
+    if (!contactDate) {
+      contactDate = new Date().toISOString().slice(0, 10);
+      console.log("[create-from-gpt] 📅 Sätter dagens datum:", contactDate);
+    }
+
     // Sätt kund-ID
     if (!customerId) {
       // Kolla om kund med samma företagsnamn redan finns
@@ -574,7 +580,31 @@ export async function POST(req: Request) {
       console.log("[create-from-gpt] ✅ Customer cards saved");
     }
 
-    // 6) Generera PDF
+    // 6) Bygg customerData FÖRE PDF-generering
+    const customerData = {
+      companyName,
+      orgNr,
+      contactPerson,
+      email,
+      phone,
+      address,
+      zip,
+      city,
+      country,
+      customerNumber,
+      contactDate,
+      role,
+    };
+
+    console.log("[create-from-gpt] 📤 customerData för PDF:", customerData);
+
+    // Varning om companyName är "Ny kund" men andra fält finns
+    if (companyName === "Ny kund" && (orgNr || contactPerson || email)) {
+      console.warn("[create-from-gpt] ⚠️ VARNING: companyName är 'Ny kund' men andra kunduppgifter finns!");
+      console.warn("[create-from-gpt] Detta kan betyda att GPT skickade datum istället för företagsnamn.");
+    }
+
+    // 6b) Generera PDF med strukturerad customerData
     const pdfBytes = await buildDocument(
       {
         customerId,
@@ -582,7 +612,8 @@ export async function POST(req: Request) {
         amount: safeJson.summa || 0,
         currency: safeJson.valuta || "SEK",
         needsPrint: false,
-        data: { textData },
+        customer: customerData,  // ✅ Strukturerad data
+        textData: textData,       // ✅ Bara för beskrivning
       },
       "offer"
     );
@@ -654,29 +685,6 @@ export async function POST(req: Request) {
 
     if (offerErr) {
       return bad("Offer insert failed: " + offerErr.message, 500);
-    }
-
-    // Bygg customerData-objektet
-    const customerData = {
-      companyName,
-      orgNr,
-      contactPerson,
-      email,
-      phone,
-      address,
-      zip,
-      city,
-      country,
-      customerNumber,
-      contactDate,
-    };
-
-    console.log("[create-from-gpt] 📤 Skickar tillbaka customerData:", customerData);
-
-    // Varning om companyName är "Ny kund" men andra fält finns
-    if (companyName === "Ny kund" && (orgNr || contactPerson || email)) {
-      console.warn("[create-from-gpt] ⚠️ VARNING: companyName är 'Ny kund' men andra kunduppgifter finns!");
-      console.warn("[create-from-gpt] Detta kan betyda att GPT skickade datum istället för företagsnamn.");
     }
 
     return NextResponse.json(
