@@ -1466,7 +1466,7 @@ export default function KundDetaljsida() {
                   {data.customerNumber}
                 </span>
               </div>
-            </div>d
+            </div>
           </div>
         </div>
       </header>
