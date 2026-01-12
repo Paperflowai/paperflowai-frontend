@@ -604,19 +604,33 @@ export async function POST(req: Request) {
       console.warn("[create-from-gpt] Detta kan betyda att GPT skickade datum istället för företagsnamn.");
     }
 
-    // 6b) Generera PDF med strukturerad customerData
-    const pdfBytes = await buildDocument(
-      {
-        customerId,
-        title: safeJson.titel || "Offert",
-        amount: safeJson.summa || 0,
-        currency: safeJson.valuta || "SEK",
-        needsPrint: false,
-        customer: customerData,  // ✅ Strukturerad data
-        textData: textData,       // ✅ Bara för beskrivning
+     // 6b) Generera PDF med strukturerad customerData
+  const pdfBytes = await buildDocument(
+    {
+      customerId,
+      title: safeJson.titel || "Offert",
+      amount: safeJson.summa || 0,
+      currency: safeJson.valuta || "SEK",
+      needsPrint: false,
+      customer: {
+        companyName: companyName,
+        orgNr: orgNr,
+        contactPerson: contactPerson,
+        email: email,
+        phone: phone,
+        address: address,
+        zip: zip,
+        city: city,
+        country: country,
+        customerNumber: customerNumber,
+        contactDate: contactDate,
+        role: role,
       },
-      "offer"
-    );
+      textData: textData,
+    },
+    "offer"
+  );
+
 
     // 7) Lagra PDF i Storage
     const docId = crypto.randomUUID();
