@@ -2,6 +2,7 @@
 import { pdf, Document, Page, Text, StyleSheet, View } from '@react-pdf/renderer';
 import OfferPdf from '@/lib/pdf/OfferPdf';
 import ProfessionalOfferPdf from '@/lib/pdf/ProfessionalOfferPdf';
+import OrderConfirmationPdf from '@/lib/pdf/OrderConfirmationPdf';
 
 export type DocumentType = 'offer' | 'order' | 'invoice' | 'orderConfirmation';
 
@@ -139,10 +140,18 @@ export async function buildDocument(
   // Hantera olika dokumenttyper
   switch (type) {
     case 'order':
-      docElement = renderSimpleDocument(
-        'ORDERBEKRÄFTELSE',
-        data.number || 'Order',
-        data
+      // Använd OrderConfirmationPdf för orders
+      docElement = (
+        <OrderConfirmationPdf
+          customer={data.customer || {}}
+          details={data.details}
+          number={data.number}
+          companyInfo={{
+            name: 'PaperflowAI',
+            email: 'info@paperflowai.se',
+            website: 'www.paperflowai.se'
+          }}
+        />
       );
       break;
 

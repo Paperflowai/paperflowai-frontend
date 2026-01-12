@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { buildDocument } from "@/lib/pdf/buildDocument";
+import crypto from "crypto";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -37,6 +38,18 @@ export async function POST(
       return NextResponse.json({ error: "Offer not found" }, { status: 404 });
     }
 
+    // Get customer details from customers table
+    const { data: customer, error: customerError } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('id', offer.customer_id)
+      .single();
+
+    if (customerError || !customer) {
+      console.error('Customer fetch error:', customerError);
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
+
     // Generate order number
     const currentYear = new Date().getFullYear();
 
@@ -63,14 +76,40 @@ export async function POST(
     }
 
     // Calculate totals from offer data
-    const totalSum = parseFloat(offer.data?.details?.totalSum || '0');
-    const vatPercent = parseFloat(offer.data?.details?.vatPercent || '0');
+    const totalSum = parseFloat(offer.data?.details?.totalSum || offer.amount || '0');
+    const vatPercent = parseFloat(offer.data?.details?.vatPercent || '25');
     const vatTotal = totalSum * (vatPercent / 100);
 
-    // Prepare document data for order
+    // Kopiera items från offert och sätt som godkända
+    const offerItems = offer.data?.details?.items || offer.data?.items || [];
+    const rows = offerItems.map((item: any) => ({
+      id: item.id || crypto.randomUUID(),
+      description: item.description || item.name || "",
+      qty: parseFloat(item.qty || item.quantity || 0),
+      price: parseFloat(item.price || item.unitPrice || 0),
+      source: "offer",
+      approved: true,
+      approved_at: new Date().toISOString(),
+    }));
+
+    // Prepare document data for order with actual customer data from customers table
     const documentData = {
-      customer: offer.data.customer,
-      details: offer.data.details,
+      customer: {
+        companyName: customer.company_name,
+        orgNr: customer.org_nr || customer.orgnr,
+        contactPerson: customer.contact_person,
+        role: customer.role,
+        email: customer.email,
+        phone: customer.phone,
+        address: customer.address,
+        zip: customer.zip,
+        city: customer.city,
+        country: customer.country || "Sverige",
+        customerNumber: customer.customer_number,
+        contactDate: customer.contact_date,
+      },
+      details: offer.data?.details || offer.data || {},
+      rows,
       number: orderNumber,
     };
 

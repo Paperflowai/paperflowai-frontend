@@ -4,7 +4,7 @@ import OfferPanel from "./OfferPanel";
 import DocsCard from "@/components/DocsCard";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import LogoutButton from "@/components/LogoutButton";
 import OfferList from "@/components/OfferList";
 import OfferRealtime from "./OfferRealtime";
@@ -195,38 +195,31 @@ export default function KundDetaljsida() {
           bucket: BUCKET_DOCS,
         }),
       });
-      if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
+      if (!res.ok || !json.ok) {
+        throw new Error(json.message || json.error || "Kunde inte skapa order");
+      }
 
-      // Om order skapades med PDF, hämta och visa den
-      if (json?.ok && json?.path && json?.bucket) {
-        console.log("[handleCreateOrder] Order created with PDF:", json.path);
-
-        const { data: file, error } = await supabase.storage
-          .from(json.bucket)
-          .download(json.path);
-
-        if (error || !file) {
-          console.error("[order] download failed", error?.message);
-        } else {
-          const pdfBlob =
-            file.type === "application/pdf"
-              ? file
-              : new Blob([file], { type: "application/pdf" });
-
-          console.log("[order] blob size,type =", pdfBlob.size, pdfBlob.type);
-          const url = URL.createObjectURL(pdfBlob);
-          setOrderPdfUrl((prev) => {
-            if (prev) URL.revokeObjectURL(prev);
-            return url;
+      // Använd returnerad order från databasen
+      if (json?.order) {
+        console.log("[handleCreateOrder] Order created:", json.order.id);
+        // Reload orders från Supabase för att säkerställa att vi har senaste data
+        try {
+          const resOrders = await fetch(`/api/orders/list?customerId=${encodeURIComponent(customerId)}`, {
+            cache: "no-store",
           });
-          (window as any)._lastOrderUrl = url;
-          console.log("[order] blob url:", url);
+          if (resOrders.ok) {
+            const jsonOrders = await resOrders.json();
+            const arr: any[] = Array.isArray(jsonOrders?.items) ? jsonOrders.items : [];
+            arr.sort(
+              (a, b) =>
+                new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+            );
+            setOrders(arr);
+          }
+        } catch (e) {
+          console.warn("Failed to reload orders:", e);
         }
-      } else if (json?.ok) {
-        // Order skapades utan PDF
-        console.log("[handleCreateOrder] Order created without PDF");
-        alert("Order skapad! (Ingen PDF genererades eftersom offert saknas)");
       }
 
       await save({ orderCreated: true });
@@ -266,6 +259,8 @@ export default function KundDetaljsida() {
   const [invoice, setInvoice] = useState<DocFile | null>(null);
   const [orderPdfUrl, setOrderPdfUrl] = useState<string | null>(null);
   const [orderLoading, setOrderLoading] = useState(false);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const [offerPath, setOfferPath] = useState<string | null>(null);
   const [documents, setDocuments] = useState<CustomerDocument[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
@@ -557,6 +552,53 @@ export default function KundDetaljsida() {
       loadFlowDocuments();
     }
   }, [customerId]);
+
+  // Load orders
+  useEffect(() => {
+    if (!customerId) return;
+    (async () => {
+      setOrdersLoading(true);
+      try {
+        const res = await fetch(`/api/orders/list?customerId=${encodeURIComponent(customerId)}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        const arr: any[] = Array.isArray(json?.items) ? json.items : [];
+        arr.sort(
+          (a, b) =>
+            new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+        );
+        setOrders(arr);
+      } catch (e) {
+        console.warn("Failed to load orders:", e);
+        setOrders([]);
+      } finally {
+        setOrdersLoading(false);
+      }
+    })();
+  }, [customerId]);
+
+  const latestOrder = useMemo(() => orders[0] || null, [orders]);
+
+  // Helper function for order status label
+  function orderStatusLabel(s?: string) {
+    const v = (s || "created").toLowerCase();
+    const map: Record<string, string> = {
+      created: "Skapad",
+      sent: "Skickad",
+      confirmed: "Bekräftad",
+      in_progress: "Pågår",
+      completed: "Klar",
+      cancelled: "Avbruten",
+    };
+    return map[v] ?? v;
+  }
+
+  // Helper function for date formatting
+  function fmtDate(iso?: string) {
+    return iso ? new Date(iso).toLocaleString("sv-SE") : "—";
+  }
 
   // Fallback vid mount (om offerten redan fanns)
   useEffect(() => {
@@ -1846,42 +1888,93 @@ export default function KundDetaljsida() {
           title="📑 Orderbekräftelse"
           right={
             <span
-              className={`text-xs px-2 py-0.5 rounded-full ${status.orderCreated
+              className={`text-xs px-2 py-0.5 rounded-full ${latestOrder
                   ? "bg-green-100 text-green-700"
                   : "bg-yellow-100 text-yellow-700"
                 }`}
             >
-              {status.orderCreated ? "Skapad" : "Utkast"}
+              {latestOrder ? orderStatusLabel(latestOrder.status) : "Utkast"}
             </span>
           }
         >
-          {/* Samma typ av infotekst som Offert */}
-          <p className="text-sm text-gray-600">
-            Ingen orderbekräftelse skapad ännu.
-          </p>
-
-          <div className="mt-3 flex flex-col gap-2 text-sm">
-            {/* Samma typ av knapp som Offert */}
-            <button
-              type="button"
-              onClick={handleCreateOrder}
-              disabled={orderLoading}
-              className="w-full bg-black text-white py-2 rounded-full font-semibold hover:bg-gray-900 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {orderLoading ? "Skapar order..." : "Skapa order"}
-            </button>
-
-            {/* Historik-del – visuellt matchar Offert */}
-            <div className="flex flex-col gap-0.5">
-              <p className="text-xs font-semibold text-gray-600">
-                Orderhistorik
+          {ordersLoading ? (
+            <p className="text-sm text-gray-500">Laddar…</p>
+          ) : latestOrder ? (
+            <>
+              <p className="text-sm text-gray-600">
+                Senaste order: <span className="font-medium">{fmtDate(latestOrder.created_at)}</span>
               </p>
+              <div className="mt-3 flex flex-col gap-2 text-sm">
+                <button
+                  type="button"
+                  onClick={handleCreateOrder}
+                  disabled={orderLoading}
+                  className="w-full bg-black text-white py-2 rounded-full font-semibold hover:bg-gray-900 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {orderLoading ? "Skapar order..." : "Skapa order"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-gray-600">
+                Ingen orderbekräftelse skapad ännu.
+              </p>
+              <div className="mt-3 flex flex-col gap-2 text-sm">
+                <button
+                  type="button"
+                  onClick={handleCreateOrder}
+                  disabled={orderLoading}
+                  className="w-full bg-black text-white py-2 rounded-full font-semibold hover:bg-gray-900 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {orderLoading ? "Skapar order..." : "Skapa order"}
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Historik-del – visuellt matchar Offert */}
+          <div className="mt-3 flex flex-col gap-0.5">
+            <p className="text-xs font-semibold text-gray-600">
+              Orderhistorik
+            </p>
+            {orders.length > 0 ? (
+              <ul className="divide-y border rounded mt-1">
+                {orders.map((o) => (
+                  <li
+                    key={o.id}
+                    className="py-2 px-2 text-xs flex items-center justify-between"
+                  >
+                    <div className="flex flex-col">
+                      <span className="font-medium">{fmtDate(o.created_at)}</span>
+                      <span className="text-gray-500">{orderStatusLabel(o.status)}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Link
+                        href={`/order/${o.id}`}
+                        className="text-blue-600 hover:underline"
+                      >
+                        Detaljer
+                      </Link>
+                      {o.file_url && (
+                        <a
+                          href={o.file_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          PDF
+                        </a>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
               <p className="text-xs text-gray-500">
                 Inga orderbekräftelser ännu.
               </p>
-              {/* Här kan du senare stoppa in en OrderList-komponent,
-                  precis som OfferPanel, om du vill ha riktig historik */}
-            </div>
+            )}
           </div>
         </SectionCard>
 
