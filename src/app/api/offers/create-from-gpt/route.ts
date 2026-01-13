@@ -606,7 +606,7 @@ export async function POST(req: Request) {
 
     // Bygg rows från GPT-data
     const rawItems = safeJson.items || safeJson.rader || safeJson.artiklar || [];
-    const rows = Array.isArray(rawItems)
+    let rows = Array.isArray(rawItems)
       ? rawItems.map((item: any) => ({
           id: item.id || crypto.randomUUID(),
           description: item.description || item.beskrivning || item.name || "",
@@ -617,6 +617,19 @@ export async function POST(req: Request) {
           approved_at: new Date().toISOString(),
         }))
       : [];
+
+    // Skydd: Skapa fallback-rad om rows är tom men summa finns
+    if (rows.length === 0 && safeJson.summa && parseFloat(safeJson.summa) > 0) {
+      rows = [{
+        id: crypto.randomUUID(),
+        description: "Arbete enligt offert",
+        qty: 1,
+        price: parseFloat(safeJson.summa),
+        source: "offer" as const,
+        approved: true,
+        approved_at: new Date().toISOString(),
+      }];
+    }
 
      // 6b) Generera PDF med strukturerad customerData
   const pdfBytes = await buildDocument(
