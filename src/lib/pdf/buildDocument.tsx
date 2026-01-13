@@ -186,6 +186,7 @@ export async function buildDocument(
               contactDate: customer.contactDate,
               role: customer.role,
             }}
+            rows={data.rows || []}
             textData={textData || ''}
             companyInfo={{
               name: 'PaperflowAI',

@@ -604,6 +604,20 @@ export async function POST(req: Request) {
       console.warn("[create-from-gpt] Detta kan betyda att GPT skickade datum istället för företagsnamn.");
     }
 
+    // Bygg rows från GPT-data
+    const rawItems = safeJson.items || safeJson.rader || safeJson.artiklar || [];
+    const rows = Array.isArray(rawItems)
+      ? rawItems.map((item: any) => ({
+          id: item.id || crypto.randomUUID(),
+          description: item.description || item.beskrivning || item.name || "",
+          qty: parseFloat(item.qty || item.antal || item.quantity || 1),
+          price: parseFloat(item.price || item.pris || item.unitPrice || 0),
+          source: "offer" as const,
+          approved: true,
+          approved_at: new Date().toISOString(),
+        }))
+      : [];
+
      // 6b) Generera PDF med strukturerad customerData
   const pdfBytes = await buildDocument(
     {
@@ -680,13 +694,18 @@ export async function POST(req: Request) {
     }
 
     // 9) Spara själva offerten i offers-tabellen, inklusive file_url
+    const offerData = {
+      ...safeJson,
+      rows: rows,
+    };
+
     const { data: offerRow, error: offerErr } = await supabaseAdmin
       .from("offers")
       .insert({
         customer_id: customerId,
         company_name: companyName,
         status: "created",
-        data: safeJson,
+        data: offerData,
         created_at: new Date().toISOString(),
         currency: safeJson.valuta || "SEK",
         amount: safeJson.summa || null,

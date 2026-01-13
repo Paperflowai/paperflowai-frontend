@@ -214,8 +214,19 @@ interface CustomerData {
   role?: string | null;
 }
 
+interface OfferRow {
+  id: string;
+  description: string;
+  qty: number;
+  price: number;
+  source: 'offer' | 'extra';
+  approved: boolean;
+  approved_at: string | null;
+}
+
 interface ProfessionalOfferPdfProps {
   customer?: CustomerData;  // ✅ Strukturerad data (prioriteras)
+  rows?: OfferRow[];        // ✅ Rader från data.rows
   textData: string;         // ✅ Används bara för beskrivning/fallback
   companyInfo?: {
     name: string;
@@ -330,6 +341,7 @@ function parseOfferText(text: string) {
 
 const ProfessionalOfferPdf: React.FC<ProfessionalOfferPdfProps> = ({
   customer,
+  rows = [],
   textData,
   companyInfo = {
     name: 'PaperflowAI',
@@ -356,6 +368,12 @@ const ProfessionalOfferPdf: React.FC<ProfessionalOfferPdfProps> = ({
 
   const offerDate = customer?.contactDate || parsed?.date || today;
   const offerNumber = customer?.customerNumber || parsed?.offerNumber;
+
+  // Beräkna summor från rows
+  const totalSum = rows.reduce((sum, row) => sum + (row.qty * row.price), 0);
+  const vatPercent = 25;
+  const vatAmount = totalSum * (vatPercent / 100);
+  const totalWithVat = totalSum + vatAmount;
 
   return (
     <Document>
@@ -406,8 +424,47 @@ const ProfessionalOfferPdf: React.FC<ProfessionalOfferPdfProps> = ({
           <Text style={styles.bodyText}>{textData}</Text>
         </View>
 
-        {/* SUMMARY BOX - från textData om tillgänglig */}
-        {(parsed?.summary?.subtotal || parsed?.summary?.total) && (
+        {/* ROWS TABLE */}
+        {rows.length > 0 && (
+          <View style={styles.table}>
+            <View style={styles.tableHeader}>
+              <Text style={styles.tableCellDesc}>Beskrivning</Text>
+              <Text style={styles.tableCellQty}>Antal</Text>
+              <Text style={styles.tableCellPrice}>Pris</Text>
+              <Text style={styles.tableCellTotal}>Summa</Text>
+            </View>
+            {rows.map((row, index) => {
+              const rowTotal = row.qty * row.price;
+              const rowStyle = index % 2 === 0 ? styles.tableRow : styles.tableRowAlt;
+              return (
+                <View key={row.id} style={rowStyle}>
+                  <Text style={styles.tableCellDesc}>{row.description}</Text>
+                  <Text style={styles.tableCellQty}>{row.qty}</Text>
+                  <Text style={styles.tableCellPrice}>{row.price.toFixed(2)} kr</Text>
+                  <Text style={styles.tableCellTotal}>{rowTotal.toFixed(2)} kr</Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        {/* SUMMARY BOX - från rows om tillgänglig */}
+        {rows.length > 0 ? (
+          <View style={styles.summaryBox}>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Summa exkl. moms:</Text>
+              <Text style={styles.summaryValue}>{totalSum.toFixed(2)} SEK</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Moms ({vatPercent}%):</Text>
+              <Text style={styles.summaryValue}>{vatAmount.toFixed(2)} SEK</Text>
+            </View>
+            <View style={styles.summaryTotal}>
+              <Text style={styles.summaryTotalLabel}>Totalt inkl. moms:</Text>
+              <Text style={styles.summaryTotalValue}>{totalWithVat.toFixed(2)} SEK</Text>
+            </View>
+          </View>
+        ) : (parsed?.summary?.subtotal || parsed?.summary?.total) && (
           <View style={styles.summaryBox}>
             {parsed.summary.subtotal && (
               <View style={styles.summaryRow}>
