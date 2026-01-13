@@ -89,17 +89,8 @@ export async function POST(req: Request) {
       const vatPercent = parseFloat(latestOffer.data?.details?.vatPercent || '25');
       const vatTotal = totalSum * (vatPercent / 100);
 
-      // Kopiera items från offert och sätt som godkända
-      const offerItems = latestOffer.data?.details?.items || latestOffer.data?.items || [];
-      const rows = offerItems.map((item: any) => ({
-        id: item.id || crypto.randomUUID(),
-        description: item.description || item.name || "",
-        qty: parseFloat(item.qty || item.quantity || 0),
-        price: parseFloat(item.price || item.unitPrice || 0),
-        source: "offer",
-        approved: true,
-        approved_at: new Date().toISOString(),
-      }));
+      // Kopiera rows från offert
+      const rows = latestOffer.data?.rows || [];
 
       // Förbered dokumentdata för order med faktisk kunddata från customers-tabellen
       const documentData = {
