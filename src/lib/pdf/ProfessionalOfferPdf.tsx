@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer';
 
 // PDF-säkra styles (inga gradients, flex-gap, grid)
 const styles = StyleSheet.create({
@@ -198,6 +198,23 @@ const styles = StyleSheet.create({
     color: '#888',
     marginBottom: 2,
   },
+  // IMAGES
+  imageSection: {
+    marginTop: 20,
+    marginBottom: 20,
+  },
+  imageTitle: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#000',
+  },
+  image: {
+    maxWidth: '100%',
+    maxHeight: 400,
+    marginBottom: 10,
+    objectFit: 'contain',
+  },
 });
 
 interface CustomerData {
@@ -228,6 +245,7 @@ interface ProfessionalOfferPdfProps {
   customer?: CustomerData;  // ✅ Strukturerad data (prioriteras)
   rows?: OfferRow[];        // ✅ Rader från data.rows
   textData: string;         // ✅ Används bara för beskrivning/fallback
+  images?: string[];        // ✅ Bilder (base64 eller URLs)
   companyInfo?: {
     name: string;
     address?: string;
@@ -343,6 +361,7 @@ const ProfessionalOfferPdf: React.FC<ProfessionalOfferPdfProps> = ({
   customer,
   rows = [],
   textData,
+  images = [],
   companyInfo = {
     name: 'PaperflowAI',
     email: 'info@paperflowai.se',
@@ -484,6 +503,16 @@ const ProfessionalOfferPdf: React.FC<ProfessionalOfferPdfProps> = ({
                 <Text style={styles.summaryTotalValue}>{parsed.summary.total} SEK</Text>
               </View>
             )}
+          </View>
+        )}
+
+        {/* IMAGES */}
+        {images.length > 0 && (
+          <View style={styles.imageSection}>
+            <Text style={styles.imageTitle}>BILAGOR</Text>
+            {images.map((img: string, idx: number) => (
+              <Image key={idx} src={img} style={styles.image} />
+            ))}
           </View>
         )}
 

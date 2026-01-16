@@ -39,10 +39,16 @@ export async function GET(
       return NextResponse.json({ error: "Customer not found" }, { status: 404 });
     }
 
+    // Parse data-kolumnen om den är en string
+    const parsedData = typeof order.data === 'string'
+      ? JSON.parse(order.data)
+      : order.data;
+
     return NextResponse.json({
       ok: true,
       order: {
         ...order,
+        data: parsedData,
         customer
       }
     });

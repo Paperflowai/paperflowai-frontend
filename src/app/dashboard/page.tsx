@@ -574,7 +574,7 @@ const laddaKunder = async () => {
   try {
     const { data, error } = await supabase
       .from('customers')
-      .select('id, name, company_name, customer_number, orgnr, email, phone, address, zip, city, country, contact_person, role, contact_date');
+      .select('id, name, company_name, customer_number, orgnr, email, phone, address, zip, city, country, contact_person, role, contact_date, property_designation, association_orgnr, personal_number');
 
     if (error) {
       console.error('Kunde inte hämta customers från Supabase:', error.message);

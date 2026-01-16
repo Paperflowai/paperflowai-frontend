@@ -25,6 +25,12 @@ interface Customer {
   zip?: string;
   city?: string;
   country?: string;
+
+  // NYA FÄLT
+  property_designation?: string;
+  association_orgnr?: string;
+  personal_number?: string;
+
   [k: string]: any;
 }
 
@@ -32,34 +38,54 @@ interface Customer {
 export async function POST(req: Request, context: any) {
   try {
     const body = await req.json();
-    const offer = body?.offer;
+    const offer = body?.offer || body;
 
     if (!offer) return err("validate", "Missing offer data", 400);
     if (!offer.email) return err("validate", "Missing customer email in offer", 400);
+
+    // Mappa fältnamn från formuläret till databas-namn
+    const mappedOffer = {
+      name: offer.companyName || offer.name,
+      email: offer.email,
+      phone: offer.phone,
+      orgnr: offer.orgNr || offer.orgnr,
+      address: offer.address,
+      zip: offer.zip,
+      city: offer.city,
+      country: offer.country,
+      property_designation: offer.property_designation,
+      association_orgnr: offer.association_orgnr,
+      personal_number: offer.personal_number,
+    };
 
     // 1) Hämta/korrigera kund via e-post
     const { data: customers, error: fetchErr } = await admin
       .from("customers")
       .select("*")
-      .eq("email", offer.email);
+      .eq("email", mappedOffer.email);
 
     if (fetchErr) return err("fetchCustomers", fetchErr.message);
 
     let customerId: string | null = null;
-    const existing: Customer | undefined = customers?.find((c) => c.email === offer.email);
+    const existing: Customer | undefined = customers?.find((c) => c.email === mappedOffer.email);
 
     if (existing) {
       customerId = existing.id;
       await admin
         .from("customers")
         .update({
-          name: offer.name ?? existing.name,
-          phone: offer.phone ?? existing.phone,
-          orgnr: offer.orgnr ?? existing.orgnr,
-          address: offer.address ?? existing.address,
-          zip: offer.zip ?? existing.zip,
-          city: offer.city ?? existing.city,
-          country: offer.country ?? existing.country,
+          name: mappedOffer.name ?? existing.name,
+          phone: mappedOffer.phone ?? existing.phone,
+          orgnr: mappedOffer.orgnr ?? existing.orgnr,
+          address: mappedOffer.address ?? existing.address,
+          zip: mappedOffer.zip ?? existing.zip,
+          city: mappedOffer.city ?? existing.city,
+          country: mappedOffer.country ?? existing.country,
+
+          // NYA FÄLT (sparas om de finns)
+          property_designation: mappedOffer.property_designation ?? existing.property_designation,
+          association_orgnr: mappedOffer.association_orgnr ?? existing.association_orgnr,
+          personal_number: mappedOffer.personal_number ?? existing.personal_number,
         })
         .eq("id", existing.id);
     } else {
@@ -67,14 +93,19 @@ export async function POST(req: Request, context: any) {
         .from("customers")
         .insert([
           {
-            name: offer.name,
-            email: offer.email,
-            phone: offer.phone,
-            orgnr: offer.orgnr,
-            address: offer.address,
-            zip: offer.zip,
-            city: offer.city,
-            country: offer.country,
+            name: mappedOffer.name,
+            email: mappedOffer.email,
+            phone: mappedOffer.phone,
+            orgnr: mappedOffer.orgnr,
+            address: mappedOffer.address,
+            zip: mappedOffer.zip,
+            city: mappedOffer.city,
+            country: mappedOffer.country,
+
+            // NYA FÄLT
+            property_designation: mappedOffer.property_designation,
+            association_orgnr: mappedOffer.association_orgnr,
+            personal_number: mappedOffer.personal_number,
           },
         ])
         .select()

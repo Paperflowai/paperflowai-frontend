@@ -188,6 +188,21 @@
                             "description": "Land",
                             "default": "Sverige",
                             "example": "Sverige"
+                          },
+                          "fastighetsbeteckning": {
+                            "type": "string",
+                            "description": "Fastighetsbeteckning",
+                            "example": "Eken 15:3"
+                          },
+                          "foreningOrgnr": {
+                            "type": "string",
+                            "description": "Föreningens organisationsnummer i format XXXXXX-XXXX",
+                            "example": "123456-7890"
+                          },
+                          "personnummer": {
+                            "type": "string",
+                            "description": "Personnummer i format YYYYMMDD-XXXX",
+                            "example": "19850615-1234"
                           }
                         }
                       }
@@ -215,7 +230,10 @@
                     "adress": "Exempelgatan 1",
                     "postnummer": "123 45",
                     "ort": "Stockholm",
-                    "land": "Sverige"
+                    "land": "Sverige",
+                    "fastighetsbeteckning": "Eken 15:3",
+                    "foreningOrgnr": "123456-7890",
+                    "personnummer": "19850615-1234"
                   }
                 }
               }

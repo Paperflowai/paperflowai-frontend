@@ -12,12 +12,15 @@ export default function OfferRealtime({ customerId }: { customerId: string }) {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "offers", filter: `customer_id=eq.${customerId}` },
-        (payload) => {
+        async (payload) => {
           const o = payload.new as any;
-          const go = typeof window !== "undefined" && confirm("Ny offert skapad. Vill du öppna PDF:en nu?");
-          if (go && o?.file_url) window.open(o.file_url as string, "_blank");
-          // uppdatera listan på sidan
-          router.refresh();
+          console.log("[OfferRealtime] New offer created:", o);
+
+          // Ge Supabase tid att propagera ändringar (500ms)
+          await new Promise(resolve => setTimeout(resolve, 500));
+
+          // Ladda om sidan för att hämta uppdaterad kunddata
+          window.location.reload();
         }
       )
       .subscribe();
