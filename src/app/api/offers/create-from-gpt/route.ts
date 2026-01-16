@@ -126,11 +126,6 @@ export async function POST(req: Request) {
       console.log("[create-from-gpt] 🖼️ First image preview:", imageList[0].substring(0, 100));
     }
     const kund = safeJson.kund || safeJson.customer || {};
-    
-    const property_designation = kund.fastighetsbeteckning ?? null;
-const association_orgnr = kund.foreningOrgnr ?? null;
-const personal_number = kund.personnummer ?? null;
-
 
     // 🔍 DEBUG: Logga vad GPT faktiskt skickar
     console.log("[create-from-gpt] 📦 Raw jsonData:", JSON.stringify(jsonData, null, 2));
