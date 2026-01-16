@@ -264,6 +264,7 @@ export async function POST(req: Request) {
 
     let association_orgnr =
       kund.foreningOrgnr ??
+      kund.foreningsOrgNr ??
       kund.föreningOrgnr ??
       kund.association_orgnr ??
       kund.associationOrgnr ??
