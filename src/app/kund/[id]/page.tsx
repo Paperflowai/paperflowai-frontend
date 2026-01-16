@@ -245,6 +245,9 @@ export default function KundDetaljsida() {
     contactDate: "",
     notes: "",
     customerNumber: "",
+    property_designation: "",
+    association_orgnr: "",
+    personal_number: "",
     // Nya fält för offertdata
     offerText: "",
     totalSum: "",
@@ -316,78 +319,84 @@ export default function KundDetaljsida() {
      if (!error && customerRow) {
   console.log("[page.tsx] ✅ Loaded customer from Supabase:", customerRow);
 
-  setData((prev) => ({
-    ...prev,
-
-    // Företagsnamn – ta helst name, annars company_name, annars behåll det som redan finns
+  const newData = {
     companyName:
       cleanText(customerRow.name) ??
       cleanText(customerRow.company_name) ??
-      prev.companyName,
+      "",
 
-    // Org.nr
     orgNr:
       cleanText(customerRow.org_nr) ??
       cleanText(customerRow.orgnr) ??
-      prev.orgNr,
+      "",
 
-    // Kontaktperson
     contactPerson:
       cleanText(customerRow.contact_person) ??
-      prev.contactPerson,
+      "",
 
-    // 🔹 Befattning (NYTT – laddar från role-kolumnen)
     role:
       cleanText(customerRow.role) ??
-      prev.role,
+      "",
 
-    // Telefon
     phone:
       cleanText(customerRow.phone) ??
-      prev.phone,
+      "",
 
-    // E-post
     email:
       cleanText(customerRow.email) ??
-      prev.email,
+      "",
 
-    // Adress
     address:
       cleanText(customerRow.address) ??
-      prev.address,
+      "",
 
-    // Postnummer
     zip:
       cleanText(customerRow.zip) ??
-      prev.zip,
+      "",
 
-    // Ort
     city:
       cleanText(customerRow.city) ??
-      prev.city,
+      "",
 
-    // Land
     country:
       cleanText(customerRow.country) ??
-      prev.country ??
       "Sverige",
 
-    // Datum (kontakt/offertdatum) - behåll datumformatet här
     contactDate:
       (customerRow.contact_date &&
         String(customerRow.contact_date).slice(0, 10)) ??
-      prev.contactDate,
+      "",
 
-    // Anteckningar
     notes:
       cleanText(customerRow.notes) ??
-      prev.notes,
+      "",
 
-    // Kundnummer
     customerNumber:
       cleanText(customerRow.customer_number) ??
-      prev.customerNumber,
-  }));
+      "",
+
+    property_designation:
+      String(customerRow.property_designation ?? ""),
+
+    association_orgnr:
+      String(customerRow.association_orgnr ?? ""),
+
+    personal_number:
+      String(customerRow.personal_number ?? ""),
+
+    offerText: "",
+    totalSum: "",
+    vatPercent: "",
+    vatAmount: "",
+    validityDays: "",
+  };
+  setData(newData);
+
+  console.log("[page.tsx] ✅ Three fields loaded:", {
+    property_designation: newData.property_designation,
+    association_orgnr: newData.association_orgnr,
+    personal_number: newData.personal_number
+  });
 
   return;
 }
@@ -419,7 +428,10 @@ export default function KundDetaljsida() {
           zip: localCustomer.zip || localCustomer.postnummer || prev.zip,
           city: localCustomer.city || localCustomer.ort || prev.city,
           country: localCustomer.country || localCustomer.land || prev.country,
-          customerNumber: localCustomer.customerNumber || localCustomer.offertnummer || prev.customerNumber
+          customerNumber: localCustomer.customerNumber || localCustomer.offertnummer || prev.customerNumber,
+          property_designation: localCustomer.property_designation || prev.property_designation,
+          association_orgnr: localCustomer.association_orgnr || prev.association_orgnr,
+          personal_number: localCustomer.personal_number || prev.personal_number,
         }));
       }
     }
@@ -716,6 +728,9 @@ export default function KundDetaljsida() {
         contactDate: updated.contactDate,
         notes: updated.notes,
         customerNumber: updated.customerNumber,
+        property_designation: updated.property_designation,
+        association_orgnr: updated.association_orgnr,
+        personal_number: updated.personal_number,
         offerText: updated.offerText,
         totalSum: updated.totalSum,
         vatPercent: updated.vatPercent,
@@ -733,12 +748,45 @@ export default function KundDetaljsida() {
     setData(updated);
   }
 
-  function handleChange(
+  async function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) {
     const { name, value } = e.target;
     const updated = { ...data, [name]: value };
     persistData(updated);
+
+    try {
+      const fieldMap: Record<string, string> = {
+        companyName: 'name',
+        orgNr: 'orgnr',
+        contactPerson: 'contact_person',
+        customerNumber: 'customer_number',
+        contactDate: 'contact_date',
+        email: 'email',
+        phone: 'phone',
+        address: 'address',
+        zip: 'zip',
+        city: 'city',
+        country: 'country',
+        role: 'role',
+        notes: 'notes',
+        property_designation: 'property_designation',
+        association_orgnr: 'association_orgnr',
+        personal_number: 'personal_number',
+      };
+
+      const dbFieldName = fieldMap[name] || name;
+      const payload: any = {};
+      payload[dbFieldName] = value;
+
+      await fetch(`/api/customers/${customerId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (error) {
+      console.error('Failed to update customer in Supabase:', error);
+    }
   }
 
   function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1098,6 +1146,9 @@ export default function KundDetaljsida() {
       contactDate: "",
       notes: "",
       customerNumber: nyttKundnummer,
+      property_designation: "",
+      association_orgnr: "",
+      personal_number: "",
       offerText: "",
       totalSum: "",
       vatPercent: "",
@@ -1699,6 +1750,45 @@ export default function KundDetaljsida() {
               id="country"
               name="country"
               value={data.country}
+              onChange={handleChange}
+              className="border p-2 rounded"
+            />
+          </div>
+
+          <div className="flex flex-col">
+            <label htmlFor="property_designation" className="text-sm text-gray-600 mb-1">
+              Fastighetsbeteckning
+            </label>
+            <input
+              id="property_designation"
+              name="property_designation"
+              value={data.property_designation}
+              onChange={handleChange}
+              className="border p-2 rounded"
+            />
+          </div>
+
+          <div className="flex flex-col">
+            <label htmlFor="association_orgnr" className="text-sm text-gray-600 mb-1">
+              Förening org.nr
+            </label>
+            <input
+              id="association_orgnr"
+              name="association_orgnr"
+              value={data.association_orgnr}
+              onChange={handleChange}
+              className="border p-2 rounded"
+            />
+          </div>
+
+          <div className="flex flex-col">
+            <label htmlFor="personal_number" className="text-sm text-gray-600 mb-1">
+              Personnummer
+            </label>
+            <input
+              id="personal_number"
+              name="personal_number"
+              value={data.personal_number}
               onChange={handleChange}
               className="border p-2 rounded"
             />

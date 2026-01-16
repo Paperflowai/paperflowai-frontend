@@ -91,6 +91,7 @@ type GPTOfferBody = {
   customerId?: string;      // kan saknas vid ny kund
   jsonData?: any;
   textData: string;
+  images?: string[];        // Base64-kodade bilder från GPT
 };
 
 // CORS headers for GPT Actions
@@ -111,13 +112,19 @@ export async function OPTIONS() {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as GPTOfferBody;
-    let { customerId, jsonData, textData } = body;
+    let { customerId, jsonData, textData, images } = body;
 
     if (!textData) {
       return bad("Missing textData");
     }
 
     const safeJson = jsonData || {};
+    const imageList = images || [];
+
+    console.log("[create-from-gpt] 🖼️ Images received:", imageList.length);
+    if (imageList.length > 0) {
+      console.log("[create-from-gpt] 🖼️ First image preview:", imageList[0].substring(0, 100));
+    }
     const kund = safeJson.kund || safeJson.customer || {};
 
     // 🔍 DEBUG: Logga vad GPT faktiskt skickar
@@ -248,6 +255,31 @@ export async function POST(req: Request) {
       kund.land ??
       kund.country ??
       "Sverige";
+
+    let property_designation =
+      kund.fastighetsbeteckning ??
+      kund.property_designation ??
+      kund.propertyDesignation ??
+      null;
+
+    let association_orgnr =
+      kund.foreningOrgnr ??
+      kund.föreningOrgnr ??
+      kund.association_orgnr ??
+      kund.associationOrgnr ??
+      null;
+
+    let personal_number =
+      kund.personnummer ??
+      kund.personal_number ??
+      kund.personalNumber ??
+      null;
+
+    console.log("[create-from-gpt] 🏠 Extracted fields:", {
+      property_designation,
+      association_orgnr,
+      personal_number
+    });
 
     // 🆕 Om jsonData är tom → extrahera även kontaktuppgifter från textData
     if ((!email || !phone || !contactPerson) && textData) {
@@ -539,6 +571,11 @@ export async function POST(req: Request) {
       customer_number: customerNumber ?? null,
       contact_date: contactDate ?? null,
 
+      // Fastighetsbeteckning, förening org.nr, personnummer
+      property_designation: property_designation ?? null,
+      association_orgnr: association_orgnr ?? null,
+      personal_number: personal_number ?? null,
+
       updated_at: new Date().toISOString(),
     };
 
@@ -594,6 +631,9 @@ export async function POST(req: Request) {
       customerNumber,
       contactDate,
       role,
+      property_designation,
+      association_orgnr,
+      personal_number,
     };
 
     console.log("[create-from-gpt] 📤 customerData för PDF:", customerData);
@@ -652,8 +692,12 @@ export async function POST(req: Request) {
         customerNumber: customerNumber,
         contactDate: contactDate,
         role: role,
+        property_designation: property_designation,
+        association_orgnr: association_orgnr,
+        personal_number: personal_number,
       },
       textData: textData,
+      images: imageList,
     },
     "offer"
   );
@@ -683,6 +727,48 @@ export async function POST(req: Request) {
       return bad("Could not generate public URL", 500);
     }
 
+    // 7b) Ladda upp bilder om de finns
+    const imageUrls: string[] = [];
+    for (let i = 0; i < imageList.length; i++) {
+      const base64Image = imageList[i];
+      console.log(`[create-from-gpt] 🖼️ Processing image ${i + 1}/${imageList.length}`);
+
+      try {
+        // Ta bort data:image/... prefix om det finns
+        const base64Data = base64Image.replace(/^data:image\/\w+;base64,/, '');
+        const imageBuffer = Buffer.from(base64Data, 'base64');
+
+        const imageId = crypto.randomUUID();
+        const imageStoragePath = `documents/${customerId}/offers/${docId}/image-${i}.png`;
+
+        console.log(`[create-from-gpt] 🖼️ Uploading to: ${imageStoragePath}`);
+
+        const { error: imgErr } = await supabaseAdmin.storage
+          .from(bucket)
+          .upload(imageStoragePath, imageBuffer, {
+            contentType: "image/png",
+            upsert: true,
+          });
+
+        if (imgErr) {
+          console.error(`[create-from-gpt] ❌ Image upload error:`, imgErr);
+        } else {
+          const { data: imgPub } = supabaseAdmin.storage
+            .from(bucket)
+            .getPublicUrl(imageStoragePath);
+
+          if (imgPub?.publicUrl) {
+            imageUrls.push(imgPub.publicUrl);
+            console.log(`[create-from-gpt] ✅ Image uploaded: ${imgPub.publicUrl}`);
+          }
+        }
+      } catch (err) {
+        console.error(`[create-from-gpt] ❌ Image processing error:`, err);
+      }
+    }
+
+    console.log(`[create-from-gpt] 🖼️ Total images uploaded: ${imageUrls.length}`);
+
     // 8) Spara rad i documents
     const { data: docRow, error: docErr } = await supabaseAdmin
       .from("documents")
@@ -710,6 +796,7 @@ export async function POST(req: Request) {
     const offerData = {
       ...safeJson,
       rows: rows,
+      images: imageUrls,
     };
 
     const { data: offerRow, error: offerErr } = await supabaseAdmin

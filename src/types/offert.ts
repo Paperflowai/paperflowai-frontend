@@ -41,6 +41,9 @@ export type Customer = {
   zip?: string;
   city?: string;
   country?: string;
+  property_designation?: string;
+  association_orgnr?: string;
+  personal_number?: string;
   offers?: Offer[];
 };
 
@@ -94,6 +97,9 @@ export type OrderData = {
     zip?: string;
     city?: string;
     country?: string;
+    property_designation?: string;
+    association_orgnr?: string;
+    personal_number?: string;
   };
   details: {
     totalSum: string;
@@ -150,6 +156,9 @@ export type InvoiceData = {
     zip?: string;
     city?: string;
     country?: string;
+    property_designation?: string;
+    association_orgnr?: string;
+    personal_number?: string;
   };
   details: {
     totalSum: string;
