@@ -139,10 +139,16 @@ export async function buildDocument(
   // Hantera olika dokumenttyper
   switch (type) {
     case 'order':
-      docElement = renderSimpleDocument(
-        'ORDERBEKRÄFTELSE',
-        data.number || 'Order',
-        data
+      docElement = (
+        <ProfessionalOfferPdf
+          customer={data.customer}
+          textData={`# ORDERBEKRÄFTELSE\n\nOrdernummer: ${data.number}\n\n${data.details?.offerText || ''}`}
+          companyInfo={{
+            name: 'PaperflowAI',
+            email: 'info@paperflowai.se',
+            website: 'www.paperflowai.se'
+          }}
+        />
       );
       break;
 
