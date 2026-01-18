@@ -57,3 +57,33 @@ export async function GET(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { orderId: string } }
+) {
+  try {
+    const { orderId } = params;
+
+    if (!orderId) {
+      return NextResponse.json({ error: "Order ID required" }, { status: 400 });
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    const { error: deleteError } = await supabase
+      .from('orders')
+      .delete()
+      .eq('id', orderId);
+
+    if (deleteError) {
+      console.error('Delete error:', deleteError);
+      return NextResponse.json({ error: "Failed to delete order" }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error('API error:', error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}

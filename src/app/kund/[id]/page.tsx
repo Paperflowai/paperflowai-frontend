@@ -612,6 +612,29 @@ export default function KundDetaljsida() {
     return iso ? new Date(iso).toLocaleString("sv-SE") : "—";
   }
 
+  // Delete order
+  async function deleteOrder(orderId: string) {
+    if (!confirm("Är du säker på att du vill radera denna order?")) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to delete order");
+      }
+
+      // Uppdatera listan
+      setOrders((prev) => prev.filter((o) => o.id !== orderId));
+    } catch (error) {
+      console.error("Delete error:", error);
+      alert("Kunde inte radera ordern");
+    }
+  }
+
   // Fallback vid mount (om offerten redan fanns)
   useEffect(() => {
     (async () => {
@@ -2039,7 +2062,7 @@ export default function KundDetaljsida() {
                       <span className="font-medium">{fmtDate(o.created_at)}</span>
                       <span className="text-gray-500">{orderStatusLabel(o.status)}</span>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
                       <Link
                         href={`/order/${o.id}`}
                         className="text-blue-600 hover:underline"
@@ -2056,6 +2079,13 @@ export default function KundDetaljsida() {
                           PDF
                         </a>
                       )}
+                      <button
+                        onClick={() => deleteOrder(o.id)}
+                        className="text-red-600 hover:text-red-800 ml-1"
+                        title="Radera order"
+                      >
+                        🗑️
+                      </button>
                     </div>
                   </li>
                 ))}
