@@ -17,7 +17,7 @@ export default function RootLayout({
       <body className="bg-gray-100 text-gray-900">
         {children}
         <footer className="text-center text-xs text-gray-500 py-4">
-          © 2026 PaperflowAI AB. All rights reserved.
+          © 2026 PaperflowAI. All rights reserved.
         </footer>
       </body>
     </html>
