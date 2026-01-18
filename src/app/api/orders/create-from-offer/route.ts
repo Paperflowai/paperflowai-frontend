@@ -111,6 +111,7 @@ export async function POST(req: Request) {
         details: latestOffer.data?.details || latestOffer.data || {},
         rows,
         number: orderNumber,
+        textData: latestOffer.payload?.textData || '',
       };
 
       // Generera order-PDF med buildDocument

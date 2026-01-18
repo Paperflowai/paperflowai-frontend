@@ -139,10 +139,14 @@ export async function buildDocument(
   // Hantera olika dokumenttyper
   switch (type) {
     case 'order':
+      const orderTextData = data.textData
+        ? data.textData.replace(/^#?\s*OFFERT/i, '# ORDERBEKRÄFTELSE')
+        : `# ORDERBEKRÄFTELSE\n\nOrdernummer: ${data.number}\n\n${data.details?.offerText || ''}`;
+
       docElement = (
         <ProfessionalOfferPdf
           customer={data.customer}
-          textData={`# ORDERBEKRÄFTELSE\n\nOrdernummer: ${data.number}\n\n${data.details?.offerText || ''}`}
+          textData={orderTextData}
           companyInfo={{
             name: 'PaperflowAI',
             email: 'info@paperflowai.se',
