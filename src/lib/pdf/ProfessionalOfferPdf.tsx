@@ -530,6 +530,7 @@ const ProfessionalOfferPdf: React.FC<ProfessionalOfferPdfProps> = ({
         <View style={styles.footer}>
           <Text style={styles.footerText}>Tack för ditt förtroende!</Text>
           <Text style={styles.footerText}>Denna offert är giltig i 30 dagar från ovanstående datum.</Text>
+          <Text style={styles.footerText}>© 2026 PaperflowAI AB. All rights reserved.</Text>
         </View>
       </Page>
     </Document>
